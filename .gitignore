@@ -1,0 +1,34 @@
+# ForgeLens-X
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Data (generated, not committed)
+data/generated/
+data/forensic/
+data/splits/
+data/midv500/
+data/faces/
+
+# Reports (measured results, regenerated)
+reports/*.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Env
+.env
+venv/
+env/

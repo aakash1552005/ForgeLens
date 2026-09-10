@@ -1,0 +1,40 @@
+# M1 Configuration
+# ForgeLens-X — Synthetic Tamper Generator + ELA + Copy-Move
+
+seed: 42
+
+document:
+  width: 800
+  height: 500
+  jpeg_quality: 85
+  jpeg_subsampling: 0
+  country: "REPUBLIC OF FORGELENSIA"
+  doc_number_prefix: "FGL"
+
+ela:
+  recompress_quality: 90
+  subsampling: 0
+  baseline_k: 1.8           # anomaly = max(0, ela - (mean + k*max(std, std_floor)))
+  std_floor: 1.5            # minimum variance floor to prevent zero-variance spikes
+  min_candidate_area: 25    # minimum pixel area for candidate region
+  closing_ksize: [11, 7]    # horizontal-oriented kernel to bridge glyph gaps
+  energy_threshold: 60.0    # cumulative anomaly energy threshold for candidate
+  high_error_threshold: 30  # pixels above this considered high-error
+
+copy_move:
+  n_features: 5000
+  match_threshold: 30       # max Hamming distance for ORB match
+  min_spatial_distance: 50  # min pixel distance between matched points
+  ransac_threshold: 5.0
+  min_inliers: 35           # minimum inlier matches to declare detection
+  min_confidence: 0.15      # inlier ratio threshold (inliers / good_matches)
+
+evaluation:
+  iou_threshold: 0.3        # IoU above this = successful localization
+
+dataset:
+  dev_samples: 10
+  full_samples: 150
+  train_ratio: 0.70
+  cal_ratio: 0.15
+  test_ratio: 0.15

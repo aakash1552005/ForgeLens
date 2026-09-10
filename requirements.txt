@@ -1,0 +1,9 @@
+# ForgeLens-X Requirements
+Pillow>=10.0.0
+numpy>=1.24.0
+opencv-python>=4.8.0
+scikit-image>=0.21.0
+Faker>=19.0.0
+PyYAML>=6.0
+pytest>=7.0.0
+scipy>=1.10.0
