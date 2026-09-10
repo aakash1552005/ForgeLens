@@ -14,6 +14,8 @@ data/forensic/
 data/splits/
 data/midv500/
 data/faces/
+data/face_pairs/
+models/
 
 # Reports (measured results, regenerated)
 reports/*.json

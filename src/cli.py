@@ -13,6 +13,7 @@ Usage:
 import argparse
 import json
 import os
+from pathlib import Path
 import sys
 import time
 
@@ -491,6 +492,200 @@ def cmd_screen(args):
     print("=" * 60)
 
 
+def cmd_face_verify(args):
+    """Verify document photo crop against presented live face."""
+    from src.face_verify import verify
+    from src.face_visualize import create_face_forensic_card
+
+    print("=" * 60)
+    print("ForgeLens-X — Face Verification (M2)")
+    print("=" * 60)
+    print(f"Document Photo: {args.doc_face}")
+    print(f"Live Selfie:    {args.live_face}")
+    print(f"Model Backbone: {args.model}")
+    print(f"Distance Metric:{args.metric}")
+    print("-" * 60)
+
+    res = verify(
+        document_face_path=args.doc_face,
+        live_face_path=args.live_face,
+        model_name=args.model,
+        distance_metric=args.metric,
+    )
+
+    if res.get("error"):
+        print(f"[ERROR] Verification failed: {res['error']}")
+        print(f"        Detail: {res.get('detail', 'Unknown error')}")
+        print("=" * 60)
+        return
+
+    verified = res["verified"]
+    badge = "[MATCH]" if verified else "[MISMATCH]"
+    dist = res["distance"]
+    thresh = res["threshold"]
+    sim = res["similarity_pct"]
+    tier = res["verdict_tier"]
+
+    print(f"VERDICT: {badge} {tier}")
+    print("-" * 60)
+    print(f"  • Match Verified:       {'YES (Same Person)' if verified else 'NO (Different People)'}")
+    print(f"  • Similarity Score:     {sim:.1f}%")
+    print(f"  • Measured Distance:    {dist:.4f} ({args.metric})")
+    print(f"  • Decision Threshold:   {thresh:.4f}")
+    print(f"  • Margin to Threshold:  {thresh - dist:+.4f}")
+    print(f"  • Verification Model:   {res['model']}")
+    print(f"  • Detector Backend:     {res['detector']}")
+    print(f"  • Engine:               {res['engine']}")
+    print(f"  • Processing Time:      {res['time_seconds']:.3f}s")
+
+    print("\nEXPLANATORY EVIDENCE:")
+    if verified:
+        print(f"  Facial embeddings align within confidence threshold (d={dist:.4f} <= {thresh:.4f}).")
+        print(f"  Calibrated similarity is {sim:.1f}%, indicating identity consistency.")
+    else:
+        print(f"  Facial embeddings exceed allowable threshold (d={dist:.4f} > {thresh:.4f}).")
+        print(f"  Calibrated similarity is only {sim:.1f}%, indicating disparate facial geometries.")
+
+    out_path = args.output
+    if not out_path:
+        vis_dir = os.path.join(get_reports_dir(), "visuals", "face")
+        ensure_dirs(vis_dir)
+        d_stem = Path(args.doc_face).stem
+        l_stem = Path(args.live_face).stem
+        out_path = os.path.join(vis_dir, f"{d_stem}_vs_{l_stem}_card.png")
+
+    create_face_forensic_card(
+        document_face_path=args.doc_face,
+        live_face_path=args.live_face,
+        verification_result=res,
+        output_path=out_path,
+        model_name=args.model,
+    )
+    print(f"\nVisual Forensic Explanation Card generated:")
+    print(f"  • {out_path}")
+    print("=" * 60)
+
+
+def cmd_face_compare(args):
+    """Run multi-model comparison across models."""
+    from src.face_verify import compare_models
+
+    print("=" * 60)
+    print("ForgeLens-X — Multi-Model Face Comparison (M2)")
+    print("=" * 60)
+    models = args.models or ["ArcFace", "Facenet512", "SFace"]
+    print(f"Document: {args.doc_face}")
+    print(f"Live:     {args.live_face}")
+    print(f"Models:   {', '.join(models)}")
+    print("-" * 60)
+
+    res = compare_models(
+        document_face_path=args.doc_face,
+        live_face_path=args.live_face,
+        models=models,
+        distance_metric=args.metric,
+    )
+
+    if res.get("error"):
+        print(f"[ERROR] Comparison failed: {res['error']}")
+        print(f"        Detail: {res.get('detail')}")
+        return
+
+    print(f"{'Model':<14} | {'Verified':<10} | {'Distance':<10} | {'Threshold':<10} | {'Sim %':<8} | {'Tier'}")
+    print("-" * 75)
+    for m, mres in res["models"].items():
+        if mres.get("error"):
+            print(f"{m:<14} | ERROR: {mres.get('error')}")
+        else:
+            v_str = "YES" if mres["verified"] else "NO"
+            print(f"{m:<14} | {v_str:<10} | {mres['distance']:<10.4f} | {mres['threshold']:<10.4f} | {mres['similarity_pct']:<7.1f}% | {mres['verdict_tier']}")
+
+    print("-" * 75)
+    print(f"Consensus Verdict:    {'MATCH' if res['consensus_verified'] else 'MISMATCH'}")
+    print(f"Model Agreement:      {res['agreement_pct']:.1f}% ({res['models_agreeing']}/{res['total_models']} models)")
+    print(f"Mean Similarity:      {res['mean_similarity_pct']:.1f}%")
+    print(f"Mean Distance:        {res['mean_distance']:.4f}")
+    print("=" * 60)
+
+
+def cmd_face_eval(args):
+    """Evaluate face verification on benchmark dataset."""
+    from src.face_dataset import generate_benchmark_pairs, load_benchmark_pairs
+    from src.face_evaluate import evaluate_face_verification, export_evaluation_report
+    from src.face_visualize import create_face_forensic_card
+
+    print("=" * 60)
+    print("ForgeLens-X — Benchmark Face Verification Evaluation (M2)")
+    print("=" * 60)
+
+    pairs_dir = args.pairs_dir or os.path.join(os.getcwd(), "data", "face_pairs")
+    index_path = os.path.join(pairs_dir, "pairs_index.json")
+
+    if not os.path.exists(index_path):
+        print(f"[M2] Benchmark pairs not found at {pairs_dir}. Generating {args.pairs} pairs...")
+        generate_benchmark_pairs(output_dir=pairs_dir, n_pairs=args.pairs, seed=args.seed)
+
+    pairs = load_benchmark_pairs(pairs_dir)
+    print(f"[M2] Loaded {len(pairs)} benchmark evaluation pairs from {pairs_dir}")
+    print(f"     Model:  {args.model}")
+    print(f"     Metric: {args.metric}")
+    print("-" * 60)
+
+    report = evaluate_face_verification(
+        pairs=pairs,
+        model_name=args.model,
+        distance_metric=args.metric,
+    )
+
+    metrics = report["metrics"]
+    print("BENCHMARK PERFORMANCE METRICS:")
+    print(f"  • Total Evaluated Pairs: {report['n_pairs']} ({report['n_genuine']} genuine, {report['n_imposter']} imposter)")
+    print(f"  • Verification Accuracy: {metrics['accuracy'] * 100:.2f}%")
+    print(f"  • False Accept Rate (FAR):{metrics['far'] * 100:.2f}%")
+    print(f"  • False Reject Rate (FRR):{metrics['frr'] * 100:.2f}%")
+    print(f"  • True Accept Rate (TAR): {metrics['tar'] * 100:.2f}%")
+    print(f"  • Separation Margin:     {metrics['separation_margin']:.4f}")
+    print(f"    - Mean Genuine Dist:   {metrics['mean_genuine_dist']:.4f} (std: {metrics['std_genuine_dist']:.4f})")
+    print(f"    - Mean Imposter Dist:  {metrics['mean_imposter_dist']:.4f} (std: {metrics['std_imposter_dist']:.4f})")
+    print(f"  • Mean Inference Time:   {metrics['mean_inference_time_ms']:.1f} ms / pair")
+    print(f"  • Zero-Crash Failures:   {metrics['failed_pairs']} / {report['n_pairs']}")
+
+    reports_dir = get_reports_dir()
+    csv_path = os.path.join(reports_dir, "m2_pairs_summary.csv")
+    md_path = os.path.join(reports_dir, "m2_face_audit_report.md")
+    json_path = os.path.join(reports_dir, "m2_results.json")
+
+    paths = export_evaluation_report(
+        report=report,
+        csv_path=csv_path,
+        md_path=md_path,
+        json_path=json_path,
+    )
+
+    print("\nREPORT ARTIFACTS EXPORTED:")
+    print(f"  • CSV Summary:    {paths['csv']}")
+    print(f"  • Markdown Audit: {paths['md']}")
+    print(f"  • JSON Metrics:   {paths['json']}")
+
+    if args.cards > 0:
+        vis_dir = os.path.join(reports_dir, "visuals", "face")
+        ensure_dirs(vis_dir)
+        print(f"\nGenerating {min(args.cards, len(pairs))} visual explanation cards in {vis_dir}...")
+        for i in range(min(args.cards, len(pairs))):
+            p = pairs[i]
+            card_out = os.path.join(vis_dir, f"{p['pair_id']}_forensic_card.png")
+            create_face_forensic_card(
+                document_face_path=p.get("doc_image_path") or p.get("doc_path"),
+                live_face_path=p.get("live_image_path") or p.get("live_path"),
+                output_path=card_out,
+                model_name=args.model,
+            )
+        print(f"  • Visual explanation cards generated in {vis_dir}")
+
+    print("=" * 60)
+
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="forgelens-m1",
@@ -526,6 +721,32 @@ def main():
     demo_parser.add_argument("--samples", type=int, default=10)
     demo_parser.add_argument("--seed", type=int, default=42)
 
+    # --- Milestone 2: Face Verification Subcommands ---
+
+    # face-verify
+    fv_parser = subparsers.add_parser("face-verify", help="Verify document face crop against presented live face")
+    fv_parser.add_argument("doc_face", type=str, help="Path to document face image")
+    fv_parser.add_argument("live_face", type=str, help="Path to presented live selfie image")
+    fv_parser.add_argument("--model", type=str, default="ArcFace", choices=["ArcFace", "Facenet512", "SFace"], help="Model backbone")
+    fv_parser.add_argument("--metric", type=str, default="cosine", choices=["cosine", "euclidean_l2"], help="Distance metric")
+    fv_parser.add_argument("--output", type=str, default=None, help="Output path for visual explanation card")
+
+    # face-compare
+    fc_parser = subparsers.add_parser("face-compare", help="Compare multiple face recognition models on an image pair")
+    fc_parser.add_argument("doc_face", type=str, help="Path to document face image")
+    fc_parser.add_argument("live_face", type=str, help="Path to presented live selfie image")
+    fc_parser.add_argument("--models", nargs="+", default=None, help="List of models to evaluate (e.g. ArcFace Facenet512 SFace)")
+    fc_parser.add_argument("--metric", type=str, default="cosine", choices=["cosine", "euclidean_l2"], help="Distance metric")
+
+    # face-eval
+    fe_parser = subparsers.add_parser("face-eval", help="Evaluate face verification on benchmark dataset")
+    fe_parser.add_argument("--pairs-dir", type=str, default=None, help="Path to face pairs directory")
+    fe_parser.add_argument("--pairs", type=int, default=20, help="Number of pairs to evaluate/generate")
+    fe_parser.add_argument("--model", type=str, default="ArcFace", choices=["ArcFace", "Facenet512", "SFace"], help="Model backbone")
+    fe_parser.add_argument("--metric", type=str, default="cosine", choices=["cosine", "euclidean_l2"], help="Distance metric")
+    fe_parser.add_argument("--cards", type=int, default=4, help="Number of visual diagnostic cards to generate")
+    fe_parser.add_argument("--seed", type=int, default=42, help="Random seed")
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -539,6 +760,9 @@ def main():
         "visualize": cmd_visualize,
         "screen": cmd_screen,
         "run-demo": cmd_run_demo,
+        "face-verify": cmd_face_verify,
+        "face-compare": cmd_face_compare,
+        "face-eval": cmd_face_eval,
     }
 
     commands[args.command](args)

@@ -1,0 +1,44 @@
+# M2 Configuration
+# ForgeLens-X — Face Detection & Verification Module
+
+seed: 42
+
+models:
+  primary: "ArcFace"
+  comparison: "Facenet512"
+  native_fallback: "SFace"
+
+detector:
+  backend: "yunet"              # Primary: YuNet (5-point landmarks, CPU-optimized)
+  secondary: "opencv"           # Secondary: Haar/DNN
+  confidence_threshold: 0.40    # Low-confidence acceptance for printed ID photos
+  input_size: [320, 320]
+  nms_threshold: 0.30
+  top_k: 5000
+  align: true                   # Enforce 5-point landmark affine normalization
+
+thresholds:
+  # Empirically calibrated decision thresholds for cosine distance
+  ArcFace:
+    cosine: 0.68
+    euclidean_l2: 4.15
+  Facenet512:
+    cosine: 0.30
+    euclidean_l2: 1.10
+  SFace:
+    cosine: 0.363
+    euclidean_l2: 1.128
+
+operational_regimes:
+  # Security thresholds tuned to fixed FAR targets
+  standard:
+    target_far: 0.01            # 1.0% False Accept Rate
+  high_security:
+    target_far: 0.001           # 0.1% False Accept Rate (Border/KYC)
+
+dataset:
+  benchmark_name: "lfw_and_indian_faces"
+  pairs_dir: "data/face_pairs"
+  test_faces_dir: "data/test_faces"
+  dev_pairs: 20
+  full_pairs: 100
