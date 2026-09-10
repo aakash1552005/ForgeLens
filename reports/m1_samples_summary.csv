@@ -1,0 +1,51 @@
+source_id,attack_type,label,ground_truth_bbox,ela_detected,ela_anomaly_score,ela_candidate_bbox,ela_iou,copy_move_detected,copy_move_inliers,copy_move_confidence,copy_move_bbox,copy_move_iou,fused_flagged,verdict_correct
+src_0000,none,genuine,,False,0.0,,0.0,False,10,0.0,,0.0,False,True
+src_0000,date_edit,tampered,"[228, 269, 312, 285]",True,438.65,"[224, 264, 312, 288]",0.6364,False,13,0.0,,0.0,True,True
+src_0000,text_edit,tampered,"[228, 214, 345, 230]",True,193.19,"[241, 216, 313, 232]",0.5,False,10,0.0,,0.0,True,True
+src_0000,photo_swap,tampered,"[30, 80, 200, 260]",True,140.98,"[30, 242, 92, 255]",0.0263,False,11,0.0,,0.0,True,True
+src_0000,copy_move,tampered,"[117, 319, 267, 469]",True,11577.84,"[112, 313, 272, 479]",0.8471,True,230,0.407,"[626, 324, 763, 463]",0.8464,True,True
+src_0001,none,genuine,,True,104.95,"[328, 105, 352, 120]",0.0,False,9,0.0,,0.0,True,False
+src_0001,date_edit,tampered,"[448, 269, 532, 285]",True,381.14,"[451, 265, 536, 288]",0.647,False,15,0.0,,0.0,True,True
+src_0001,text_edit,tampered,"[228, 214, 345, 230]",True,150.84,"[241, 216, 289, 232]",0.3415,False,10,0.0,,0.0,True,True
+src_0001,photo_swap,tampered,"[30, 80, 200, 260]",True,139.0,"[34, 237, 96, 256]",0.0385,False,11,0.0,,0.0,True,True
+src_0001,copy_move,tampered,"[81, 321, 231, 471]",True,11663.27,"[80, 320, 232, 480]",0.9252,True,199,0.407,"[92, 326, 217, 461]",0.75,True,True
+src_0002,none,genuine,,False,0.0,,0.0,False,13,0.0,,0.0,False,True
+src_0002,date_edit,tampered,"[228, 269, 312, 285]",True,423.96,"[225, 265, 312, 288]",0.6717,True,36,0.155,"[230, 253, 634, 422]",0.0192,True,True
+src_0002,text_edit,tampered,"[227, 104, 328, 123]",True,256.76,"[254, 105, 328, 128]",0.5819,False,12,0.0,,0.0,True,True
+src_0002,photo_swap,tampered,"[30, 80, 200, 260]",True,139.48,"[27, 241, 73, 257]",0.0224,False,12,0.0,,0.0,True,True
+src_0002,copy_move,tampered,"[164, 314, 314, 464]",True,11348.57,"[160, 312, 320, 464]",0.9252,True,301,0.411,"[164, 318, 307, 457]",0.8834,True,True
+src_0003,none,genuine,,False,0.0,,0.0,False,14,0.0,,0.0,False,True
+src_0003,date_edit,tampered,"[448, 269, 532, 285]",True,348.22,"[451, 264, 534, 288]",0.6353,False,14,0.0,,0.0,True,True
+src_0003,text_edit,tampered,"[228, 104, 334, 120]",True,250.9,"[233, 104, 336, 126]",0.6888,False,15,0.0,,0.0,True,True
+src_0003,photo_swap,tampered,"[30, 80, 200, 260]",True,328.22,"[28, 216, 128, 256]",0.1278,False,15,0.0,,0.0,True,True
+src_0003,copy_move,tampered,"[114, 305, 264, 455]",True,11326.7,"[112, 304, 264, 456]",0.9739,True,224,0.386,"[124, 311, 253, 447]",0.7797,True,True
+src_0004,none,genuine,,False,0.0,,0.0,False,23,0.0,,0.0,False,True
+src_0004,date_edit,tampered,"[448, 269, 532, 285]",True,347.08,"[450, 264, 535, 288]",0.6332,False,17,0.0,,0.0,True,True
+src_0004,text_edit,tampered,"[228, 214, 345, 230]",True,100.61,"[241, 216, 266, 232]",0.1821,False,18,0.0,,0.0,True,True
+src_0004,photo_swap,tampered,"[30, 80, 200, 260]",True,245.62,"[26, 234, 95, 256]",0.0466,False,21,0.0,,0.0,True,True
+src_0004,copy_move,tampered,"[102, 317, 252, 467]",True,11309.29,"[96, 312, 256, 478]",0.8471,True,196,0.362,"[111, 323, 241, 459]",0.7858,True,True
+src_0005,none,genuine,,False,0.0,,0.0,False,12,0.0,,0.0,False,True
+src_0005,date_edit,tampered,"[228, 269, 312, 285]",True,352.72,"[227, 266, 312, 288]",0.7187,False,25,0.0,,0.0,True,True
+src_0005,text_edit,tampered,"[228, 214, 345, 230]",True,143.7,"[241, 216, 289, 232]",0.3415,False,11,0.0,,0.0,True,True
+src_0005,photo_swap,tampered,"[30, 80, 200, 260]",True,203.26,"[33, 240, 102, 256]",0.0361,False,14,0.0,,0.0,True,True
+src_0005,copy_move,tampered,"[171, 329, 321, 479]",True,11077.63,"[168, 328, 328, 480]",0.9252,True,185,0.376,"[633, 325, 763, 459]",0.7625,True,True
+src_0006,none,genuine,,False,0.0,,0.0,False,17,0.0,,0.0,False,True
+src_0006,date_edit,tampered,"[228, 269, 312, 285]",True,424.89,"[230, 264, 312, 288]",0.656,False,14,0.0,,0.0,True,True
+src_0006,text_edit,tampered,"[228, 104, 330, 120]",True,228.41,"[236, 104, 325, 120]",0.8725,False,15,0.0,,0.0,True,True
+src_0006,photo_swap,tampered,"[30, 80, 200, 260]",True,320.09,"[33, 241, 128, 257]",0.0497,False,15,0.0,,0.0,True,True
+src_0006,copy_move,tampered,"[93, 303, 243, 453]",True,12101.0,"[88, 296, 248, 456]",0.8789,True,225,0.403,"[633, 325, 757, 462]",0.7489,True,True
+src_0007,none,genuine,,True,363.57,"[326, 104, 376, 120]",0.0,False,15,0.0,,0.0,True,False
+src_0007,date_edit,tampered,"[448, 269, 532, 285]",True,363.57,"[326, 104, 376, 120]",0.0,False,17,0.0,,0.0,True,True
+src_0007,text_edit,tampered,"[228, 214, 345, 230]",True,363.57,"[326, 104, 376, 120]",0.0,False,16,0.0,,0.0,True,True
+src_0007,photo_swap,tampered,"[30, 80, 200, 260]",True,363.57,"[326, 104, 376, 120]",0.0,False,14,0.0,,0.0,True,True
+src_0007,copy_move,tampered,"[133, 327, 283, 477]",True,13013.09,"[128, 323, 288, 480]",0.8957,True,221,0.384,"[138, 327, 271, 467]",0.8276,True,True
+src_0008,none,genuine,,False,0.0,,0.0,False,17,0.0,,0.0,False,True
+src_0008,date_edit,tampered,"[448, 269, 532, 285]",True,147.92,"[494, 264, 536, 288]",0.3486,False,17,0.0,,0.0,True,True
+src_0008,text_edit,tampered,"[228, 214, 345, 230]",True,306.22,"[241, 214, 344, 232]",0.7931,False,14,0.0,,0.0,True,True
+src_0008,photo_swap,tampered,"[30, 80, 200, 260]",True,565.88,"[30, 187, 127, 256]",0.2187,False,11,0.0,,0.0,True,True
+src_0008,copy_move,tampered,"[49, 302, 199, 452]",True,11833.77,"[48, 296, 200, 456]",0.9252,True,325,0.443,"[52, 304, 191, 445]",0.8711,True,True
+src_0009,none,genuine,,False,0.0,,0.0,False,12,0.0,,0.0,False,True
+src_0009,date_edit,tampered,"[448, 269, 532, 285]",True,325.27,"[451, 264, 530, 288]",0.6397,False,13,0.0,,0.0,True,True
+src_0009,text_edit,tampered,"[228, 214, 345, 230]",True,127.16,"[267, 216, 317, 231]",0.3642,False,12,0.0,,0.0,True,True
+src_0009,photo_swap,tampered,"[30, 80, 200, 260]",True,541.6,"[28, 185, 128, 256]",0.2263,False,12,0.0,,0.0,True,True
+src_0009,copy_move,tampered,"[88, 309, 238, 459]",True,5789.17,"[88, 304, 240, 384]",0.4806,True,251,0.413,"[93, 311, 224, 452]",0.8209,True,True

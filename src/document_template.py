@@ -241,40 +241,45 @@ def generate_document(source_id: str, seed: int = 42) -> dict:
     draw.text(name_pos, "Full Name", fill=FIELD_LABEL_COLOR, font=label_font)
     name_val_pos = (230, 103)
     draw.text(name_val_pos, name, fill=FIELD_VALUE_COLOR, font=value_font)
-    name_bbox = [230, 103, 550, 123]
-    fields["name"] = {"bbox": name_bbox, "value": name}
+    tb = draw.textbbox(name_val_pos, name, font=value_font)
+    name_bbox = [max(0, tb[0] - 2), max(0, tb[1] - 2), min(DOC_WIDTH, tb[2] + 2), min(DOC_HEIGHT, tb[3] + 2)]
+    fields["name"] = {"bbox": name_bbox, "value": name, "pos": name_val_pos}
 
     # DOB
     dob_pos = (230, 140)
     draw.text(dob_pos, "Date of Birth", fill=FIELD_LABEL_COLOR, font=label_font)
     dob_val_pos = (230, 158)
     draw.text(dob_val_pos, dob_str, fill=FIELD_VALUE_COLOR, font=value_font)
-    dob_bbox = [230, 158, 400, 178]
-    fields["dob"] = {"bbox": dob_bbox, "value": dob_str}
+    tb = draw.textbbox(dob_val_pos, dob_str, font=value_font)
+    dob_bbox = [max(0, tb[0] - 2), max(0, tb[1] - 2), min(DOC_WIDTH, tb[2] + 2), min(DOC_HEIGHT, tb[3] + 2)]
+    fields["dob"] = {"bbox": dob_bbox, "value": dob_str, "pos": dob_val_pos}
 
     # Document Number
     doc_num_pos = (230, 195)
     draw.text(doc_num_pos, "Document Number", fill=FIELD_LABEL_COLOR, font=label_font)
     doc_num_val_pos = (230, 213)
     draw.text(doc_num_val_pos, doc_number, fill=FIELD_VALUE_COLOR, font=value_font)
-    doc_num_bbox = [230, 213, 470, 233]
-    fields["document_number"] = {"bbox": doc_num_bbox, "value": doc_number}
+    tb = draw.textbbox(doc_num_val_pos, doc_number, font=value_font)
+    doc_num_bbox = [max(0, tb[0] - 2), max(0, tb[1] - 2), min(DOC_WIDTH, tb[2] + 2), min(DOC_HEIGHT, tb[3] + 2)]
+    fields["document_number"] = {"bbox": doc_num_bbox, "value": doc_number, "pos": doc_num_val_pos}
 
     # Issue Date
     issue_pos = (230, 250)
     draw.text(issue_pos, "Issue Date", fill=FIELD_LABEL_COLOR, font=label_font)
     issue_val_pos = (230, 268)
     draw.text(issue_val_pos, issue_str, fill=FIELD_VALUE_COLOR, font=value_font)
-    issue_bbox = [230, 268, 400, 288]
-    fields["issue_date"] = {"bbox": issue_bbox, "value": issue_str}
+    tb = draw.textbbox(issue_val_pos, issue_str, font=value_font)
+    issue_bbox = [max(0, tb[0] - 2), max(0, tb[1] - 2), min(DOC_WIDTH, tb[2] + 2), min(DOC_HEIGHT, tb[3] + 2)]
+    fields["issue_date"] = {"bbox": issue_bbox, "value": issue_str, "pos": issue_val_pos}
 
     # Expiry Date
     expiry_pos = (450, 250)
     draw.text(expiry_pos, "Expiry Date", fill=FIELD_LABEL_COLOR, font=label_font)
     expiry_val_pos = (450, 268)
     draw.text(expiry_val_pos, expiry_str, fill=FIELD_VALUE_COLOR, font=value_font)
-    expiry_bbox = [450, 268, 620, 288]
-    fields["expiry_date"] = {"bbox": expiry_bbox, "value": expiry_str}
+    tb = draw.textbbox(expiry_val_pos, expiry_str, font=value_font)
+    expiry_bbox = [max(0, tb[0] - 2), max(0, tb[1] - 2), min(DOC_WIDTH, tb[2] + 2), min(DOC_HEIGHT, tb[3] + 2)]
+    fields["expiry_date"] = {"bbox": expiry_bbox, "value": expiry_str, "pos": expiry_val_pos}
 
     # Stamp (bottom right)
     stamp_bbox = [620, 320, 770, 470]

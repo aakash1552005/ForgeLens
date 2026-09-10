@@ -1,9 +1,15 @@
-"""Tests for src/evaluate.py"""
-
+import os
+import tempfile
 import numpy as np
 import pytest
 
-from src.evaluate import evaluate_batch, evaluate_detection, evaluate_localization
+from src.evaluate import (
+    evaluate_batch,
+    evaluate_detection,
+    evaluate_localization,
+    export_samples_summary_csv,
+    generate_markdown_audit_report,
+)
 
 
 class TestEvaluateDetection:
@@ -91,3 +97,63 @@ class TestEvaluateBatch:
         assert "copy_move" in eval_result
         assert "n_samples" in eval_result
         assert eval_result["n_samples"] == 2
+
+    def test_export_samples_summary_csv(self):
+        results = [
+            {
+                "source_id": "src_0001",
+                "attack_type": "none",
+                "label": "genuine",
+                "ground_truth_bbox": None,
+                "ela_detected": False,
+                "ela_anomaly_score": 12.5,
+                "ela_candidate_bbox": None,
+                "copy_move_detected": False,
+                "copy_move_inliers": 0,
+                "copy_move_confidence": 0.0,
+                "copy_move_bbox": None,
+            },
+            {
+                "source_id": "src_0001",
+                "attack_type": "copy_move",
+                "label": "tampered",
+                "ground_truth_bbox": [100, 100, 200, 200],
+                "ela_detected": False,
+                "ela_anomaly_score": 25.0,
+                "ela_candidate_bbox": None,
+                "copy_move_detected": True,
+                "copy_move_inliers": 45,
+                "copy_move_confidence": 0.65,
+                "copy_move_bbox": [100, 100, 200, 200],
+            },
+        ]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_file = export_samples_summary_csv(results, filename=os.path.join(tmpdir, "test_summary.csv"))
+            assert os.path.exists(out_file)
+            with open(out_file, mode="r", encoding="utf-8") as f:
+                content = f.read()
+                assert "src_0001" in content
+                assert "copy_move" in content
+                assert "fused_flagged" in content
+
+    def test_generate_markdown_audit_report(self):
+        results = [
+            {
+                "source_id": "src_0001",
+                "attack_type": "none",
+                "label": "genuine",
+                "ground_truth_bbox": None,
+                "ela_detected": False,
+                "ela_candidate_bbox": None,
+                "copy_move_detected": False,
+                "copy_move_bbox": None,
+            },
+        ]
+        eval_result = evaluate_batch(results)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_file = generate_markdown_audit_report(eval_result, filename=os.path.join(tmpdir, "test_audit.md"))
+            assert os.path.exists(out_file)
+            with open(out_file, mode="r", encoding="utf-8") as f:
+                content = f.read()
+                assert "# ForgeLens-X — Milestone 1 Forensic Audit Report" in content
+                assert "ELA Detection & Localization Performance" in content

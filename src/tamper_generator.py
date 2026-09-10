@@ -85,7 +85,8 @@ def apply_date_edit(
     target_field = rng.choice(date_fields)
     target_info = field_bboxes[target_field]
     original_value = target_info["value"]
-    bbox = target_info["bbox"]
+    orig_bbox = target_info["bbox"]
+    render_pos = tuple(target_info.get("pos", (orig_bbox[0] + 2, orig_bbox[1] + 2)))
 
     # Generate a different date
     if target_field == "dob":
@@ -104,18 +105,33 @@ def apply_date_edit(
     # Apply tamper
     tampered = image.copy()
     draw = ImageDraw.Draw(tampered)
-    _paint_over_region(draw, bbox)
     value_font = _get_font(16)
-    draw.text((bbox[0], bbox[1]), new_value, fill=FIELD_VALUE_COLOR, font=value_font)
+    new_tb = draw.textbbox(render_pos, new_value, font=value_font)
+    new_bbox = [
+        max(0, new_tb[0] - 2),
+        max(0, new_tb[1] - 2),
+        min(image.width, new_tb[2] + 2),
+        min(image.height, new_tb[3] + 2),
+    ]
+
+    # Tamper region encompasses both the erased original text area and new text area
+    tamper_bbox = [
+        min(orig_bbox[0], new_bbox[0]),
+        min(orig_bbox[1], new_bbox[1]),
+        max(orig_bbox[2], new_bbox[2]),
+        max(orig_bbox[3], new_bbox[3]),
+    ]
+    _paint_over_region(draw, tamper_bbox)
+    draw.text(render_pos, new_value, fill=FIELD_VALUE_COLOR, font=value_font)
 
     # Create mask
     mask = _create_mask(image.width, image.height)
-    _fill_mask_bbox(mask, bbox)
+    _fill_mask_bbox(mask, tamper_bbox)
 
     return {
         "tampered_image": tampered,
         "ground_truth_mask": mask,
-        "ground_truth_bbox": bbox,
+        "ground_truth_bbox": tamper_bbox,
         "attack_type": "date_edit",
         "target_field": target_field,
         "original_value": original_value,
@@ -140,7 +156,8 @@ def apply_text_edit(
     target_field = rng.choice(text_fields)
     target_info = field_bboxes[target_field]
     original_value = target_info["value"]
-    bbox = target_info["bbox"]
+    orig_bbox = target_info["bbox"]
+    render_pos = tuple(target_info.get("pos", (orig_bbox[0] + 2, orig_bbox[1] + 2)))
 
     # Generate new value
     if target_field == "name":
@@ -157,18 +174,33 @@ def apply_text_edit(
     # Apply tamper
     tampered = image.copy()
     draw = ImageDraw.Draw(tampered)
-    _paint_over_region(draw, bbox)
     value_font = _get_font(16)
-    draw.text((bbox[0], bbox[1]), new_value, fill=FIELD_VALUE_COLOR, font=value_font)
+    new_tb = draw.textbbox(render_pos, new_value, font=value_font)
+    new_bbox = [
+        max(0, new_tb[0] - 2),
+        max(0, new_tb[1] - 2),
+        min(image.width, new_tb[2] + 2),
+        min(image.height, new_tb[3] + 2),
+    ]
+
+    # Tamper region encompasses both the erased original text area and new text area
+    tamper_bbox = [
+        min(orig_bbox[0], new_bbox[0]),
+        min(orig_bbox[1], new_bbox[1]),
+        max(orig_bbox[2], new_bbox[2]),
+        max(orig_bbox[3], new_bbox[3]),
+    ]
+    _paint_over_region(draw, tamper_bbox)
+    draw.text(render_pos, new_value, fill=FIELD_VALUE_COLOR, font=value_font)
 
     # Create mask
     mask = _create_mask(image.width, image.height)
-    _fill_mask_bbox(mask, bbox)
+    _fill_mask_bbox(mask, tamper_bbox)
 
     return {
         "tampered_image": tampered,
         "ground_truth_mask": mask,
-        "ground_truth_bbox": bbox,
+        "ground_truth_bbox": tamper_bbox,
         "attack_type": "text_edit",
         "target_field": target_field,
         "original_value": original_value,

@@ -21,7 +21,12 @@ import numpy as np
 from src.copy_move import detect_copy_move
 from src.document_template import generate_document
 from src.ela import analyze_ela, compute_baseline
-from src.evaluate import evaluate_batch, save_evaluation_report
+from src.evaluate import (
+    evaluate_batch,
+    export_samples_summary_csv,
+    generate_markdown_audit_report,
+    save_evaluation_report,
+)
 from src.tamper_generator import generate_tampered_dataset
 from src.utils import (
     ensure_dirs,
@@ -132,12 +137,22 @@ def cmd_analyze(args):
     )
     print(f"     Empirically calibrated energy threshold: {cal_threshold:.1f}")
 
-    # --- Analyze each sample ---
+    # --- Save baseline statistics for reuse / screening ---
     forensic_dir = str(get_forensic_dir())
     ela_dir = os.path.join(forensic_dir, "ela")
     cm_dir = os.path.join(forensic_dir, "copy_move")
     ensure_dirs(ela_dir, cm_dir)
 
+    baseline_npz = os.path.join(ela_dir, "baseline_stats.npz")
+    np.savez_compressed(
+        baseline_npz,
+        mean_map=baseline["mean_map"],
+        std_map=baseline["std_map"],
+        cal_threshold=cal_threshold,
+    )
+    print(f"     Baseline stats saved: {baseline_npz}")
+
+    # --- Analyze each sample ---
     analysis_results = []
     print(f"[M1] Analyzing {len(samples)} samples...")
 
@@ -186,12 +201,14 @@ def cmd_analyze(args):
             "ela_features": ela_result["features"],
             "ela_candidate_area": ela_result["candidate"]["area"] if ela_result["candidate"] else 0,
             "ela_max_anomaly": ela_result["candidate"]["max_anomaly"] if ela_result["candidate"] else 0.0,
+            "ela_anomaly_score": ela_result["candidate"]["energy"] if ela_result["candidate"] else 0.0,
             # Copy-move results
             "copy_move_detected": cm_result["detected"],
             "copy_move_bbox": cm_result["candidate_bbox"],
             "copy_move_alt_bbox": cm_result.get("alt_bbox"),
             "copy_move_num_matches": cm_result["num_matches"],
             "copy_move_num_inliers": cm_result["num_inliers"],
+            "copy_move_inliers": cm_result["num_inliers"],
             "copy_move_confidence": cm_result["confidence"],
         }
 
@@ -239,8 +256,10 @@ def cmd_evaluate(args):
         "iou_threshold": config["evaluation"]["iou_threshold"],
     }
 
-    # Save report
+    # Save reports
     report_path = save_evaluation_report(eval_results)
+    csv_path = export_samples_summary_csv(results)
+    audit_path = generate_markdown_audit_report(eval_results)
 
     # Print summary
     print("\n" + "=" * 60)
@@ -253,7 +272,9 @@ def cmd_evaluate(args):
     print("\n--- Copy-Move Detector ---")
     _print_detector_summary(eval_results["copy_move"])
 
-    print(f"\n[M1] Full report saved: {report_path}")
+    print(f"\n[M1] JSON report:     {report_path}")
+    print(f"[M1] Tabular CSV:     {csv_path}")
+    print(f"[M1] Executive audit: {audit_path}")
     return eval_results
 
 
@@ -340,6 +361,136 @@ def cmd_run_demo(args):
     return eval_results
 
 
+def cmd_screen(args):
+    """
+    Forensic document screening on a single document image.
+    Usage: py -m src.cli screen <path_to_image> [--output <output_path>]
+    """
+    image_path = args.image
+    if not os.path.exists(image_path):
+        print(f"[ERROR] Document image not found: {image_path}")
+        sys.exit(1)
+
+    print("=" * 60)
+    print("ForgeLens-X — Forensic Document Screening (M1)")
+    print("=" * 60)
+    print(f"Input Document: {image_path}")
+
+    config = load_config()
+
+    # Check for baseline stats
+    forensic_dir = str(get_forensic_dir())
+    ela_dir = os.path.join(forensic_dir, "ela")
+    baseline_path = os.path.join(ela_dir, "baseline_stats.npz")
+    baseline = None
+    cal_threshold = config["ela"].get("energy_threshold", 60.0)
+
+    if os.path.exists(baseline_path):
+        data = np.load(baseline_path)
+        baseline = {"mean_map": data["mean_map"], "std_map": data["std_map"]}
+        if "cal_threshold" in data:
+            cal_threshold = float(data["cal_threshold"])
+        print(f"ELA Baseline: Loaded from {baseline_path} (Threshold: {cal_threshold:.1f})")
+    else:
+        print(f"ELA Baseline: None found at {baseline_path} (Running uncalibrated ELA)")
+
+    # 1. Run ELA
+    ela_cfg = config["ela"]
+    ela_result = analyze_ela(
+        image_path,
+        baseline=baseline,
+        quality=ela_cfg["recompress_quality"],
+        k=ela_cfg["baseline_k"],
+        min_std=ela_cfg.get("std_floor", 1.5),
+        min_area=ela_cfg["min_candidate_area"],
+        closing_ksize=tuple(ela_cfg.get("closing_ksize", [11, 7])),
+        energy_threshold=cal_threshold,
+    )
+
+    # 2. Run Copy-Move
+    cm_cfg = config["copy_move"]
+    cm_result = detect_copy_move(
+        image_path,
+        n_features=cm_cfg["n_features"],
+        match_threshold=cm_cfg["match_threshold"],
+        min_spatial_distance=cm_cfg["min_spatial_distance"],
+        ransac_threshold=cm_cfg["ransac_threshold"],
+        min_inliers=cm_cfg["min_inliers"],
+        min_confidence=cm_cfg.get("min_confidence", 0.15),
+    )
+
+    # Screening Decision
+    flags = []
+    if ela_result["candidate"]:
+        score = float(ela_result["candidate"]["energy"])
+        bbox = ela_result["candidate"]["bbox"]
+        flags.append(f"ELA Anomaly Energy Spike (Score={score:.1f}, Bounding Box={bbox})")
+    if cm_result["detected"]:
+        inliers = cm_result.get("num_inliers", 0)
+        conf = cm_result.get("confidence") or 0.0
+        flags.append(f"Duplicated Region / Copy-Move Cloning ({inliers} ORB inliers, Confidence={conf:.2f})")
+
+    verdict = "FLAGGED (Suspicious)" if flags else "CLEAN (No Anomalies Detected)"
+    verdict_badge = "[ALERT]" if flags else "[PASS]"
+
+    cm_conf_val = cm_result.get("confidence")
+    cm_conf_str = f"{cm_conf_val:.3f}" if cm_conf_val is not None else "0.000"
+
+    print("-" * 60)
+    print(f"VERDICT: {verdict_badge} {verdict}")
+    print("-" * 60)
+    print("DETECTOR SIGNALS:")
+    print(f"  • ELA Detection:        {'POSITIVE' if ela_result['candidate'] else 'NEGATIVE'}")
+    print(f"    - Anomaly Energy:     {ela_result['candidate']['energy'] if ela_result['candidate'] else 0.0:.2f}")
+    print(f"    - Candidate Bounding: {ela_result['candidate']['bbox'] if ela_result['candidate'] else 'None'}")
+    print(f"  • Copy-Move Detection:  {'POSITIVE' if cm_result['detected'] else 'NEGATIVE'}")
+    print(f"    - Inlier Count:       {cm_result.get('num_inliers', 0)}")
+    print(f"    - Inlier Confidence:  {cm_conf_str}")
+    print(f"    - Cloned Bounding:    {cm_result.get('candidate_bbox')}")
+
+    print("\nEXPLANATORY FORENSIC EVIDENCE:")
+    if flags:
+        for idx, f in enumerate(flags, 1):
+            print(f"  [{idx}] {f}")
+    else:
+        print("  Document compression and feature correspondence show no physical manipulation.")
+
+    # Visual Forensic Card
+    base_name = os.path.splitext(os.path.basename(image_path))[0]
+    out_card = args.output
+    if not out_card:
+        vis_dir = os.path.join(get_reports_dir(), "visuals")
+        ensure_dirs(vis_dir)
+        out_card = os.path.join(vis_dir, f"{base_name}_forensic.png")
+
+    from src.visualize import create_forensic_card
+    sample_data = {
+        "image_path": image_path,
+        "attack_type": "screening",
+        "label": "screening",
+        "source_id": base_name,
+        "ground_truth_bbox": None,
+    }
+    analysis_data = {
+        "source_id": base_name,
+        "attack_type": "screening",
+        "label": "screening",
+        "image_path": image_path,
+        "ela_detected": ela_result["candidate"] is not None,
+        "ela_candidate_bbox": ela_result["candidate"]["bbox"] if ela_result["candidate"] else None,
+        "ela_features": ela_result["features"],
+        "copy_move_detected": cm_result["detected"],
+        "copy_move_bbox": cm_result["candidate_bbox"],
+        "copy_move_inliers": cm_result.get("num_inliers", 0),
+        "copy_move_confidence": cm_result.get("confidence") or 0.0,
+    }
+
+    create_forensic_card(sample_data, analysis_data, output_path=out_card)
+    print(f"\nVisual Forensic Explanation Card generated:")
+    print(f"  • {out_card}")
+    print("=" * 60)
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="forgelens-m1",
@@ -365,6 +516,11 @@ def main():
     vis_parser = subparsers.add_parser("visualize", help="Generate visual forensic explanation cards")
     vis_parser.add_argument("--count", type=int, default=5, help="Number of diagnostic cards to generate")
 
+    # screen
+    screen_parser = subparsers.add_parser("screen", help="Screen a single document for forensic manipulation")
+    screen_parser.add_argument("image", type=str, help="Path to document image")
+    screen_parser.add_argument("--output", type=str, default=None, help="Output path for visual forensic card")
+
     # run-demo
     demo_parser = subparsers.add_parser("run-demo", help="Full pipeline demo")
     demo_parser.add_argument("--samples", type=int, default=10)
@@ -381,6 +537,7 @@ def main():
         "analyze": cmd_analyze,
         "evaluate": cmd_evaluate,
         "visualize": cmd_visualize,
+        "screen": cmd_screen,
         "run-demo": cmd_run_demo,
     }
 

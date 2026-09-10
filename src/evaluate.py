@@ -12,9 +12,11 @@ These are separate metrics. A high detection rate with low IoU means
 the detector finds tampering but can't pinpoint where.
 """
 
+import csv
 import json
 import os
 from collections import defaultdict
+from datetime import datetime
 
 import numpy as np
 
@@ -230,3 +232,168 @@ def save_evaluation_report(eval_results: dict, filename: str = "m1_results.json"
     path = os.path.join(reports_dir, filename)
     save_metadata(eval_results, path)
     return path
+
+
+def export_samples_summary_csv(
+    results: list,
+    filename: str = "m1_samples_summary.csv",
+) -> str:
+    """
+    Export per-sample forensic metrics to CSV for granular auditing.
+    """
+    reports_dir = get_reports_dir()
+    os.makedirs(reports_dir, exist_ok=True)
+    out_path = os.path.join(reports_dir, filename)
+
+    fieldnames = [
+        "source_id",
+        "attack_type",
+        "label",
+        "ground_truth_bbox",
+        "ela_detected",
+        "ela_anomaly_score",
+        "ela_candidate_bbox",
+        "ela_iou",
+        "copy_move_detected",
+        "copy_move_inliers",
+        "copy_move_confidence",
+        "copy_move_bbox",
+        "copy_move_iou",
+        "fused_flagged",
+        "verdict_correct",
+    ]
+
+    with open(out_path, mode="w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+
+        for r in results:
+            label = r.get("label", "genuine")
+            gt_bbox = r.get("ground_truth_bbox")
+            ela_detected = bool(r.get("ela_detected", False))
+            ela_score = round(float(r.get("ela_anomaly_score") or 0.0), 2)
+            ela_bbox = r.get("ela_candidate_bbox")
+            ela_iou = round(float(evaluate_localization(ela_bbox, gt_bbox)), 4) if gt_bbox else 0.0
+
+            cm_detected = bool(r.get("copy_move_detected", False))
+            cm_inliers = int(r.get("copy_move_inliers") or 0)
+            cm_conf = round(float(r.get("copy_move_confidence") or 0.0), 4)
+            cm_bbox = r.get("copy_move_bbox")
+
+            # Copy-move localization checks dual bbox
+            alt_bbox = r.get("copy_move_alt_bbox")
+            src_bbox = r.get("source_bbox")
+            candidates = [c for c in [cm_bbox, alt_bbox] if c is not None]
+            targets = [t for t in [gt_bbox, src_bbox] if t is not None]
+            best_cm_iou = 0.0
+            for c in candidates:
+                for t in targets:
+                    best_cm_iou = max(best_cm_iou, evaluate_localization(c, t))
+            cm_iou = round(float(best_cm_iou), 4) if gt_bbox else 0.0
+
+            fused_flagged = ela_detected or cm_detected
+            verdict_correct = fused_flagged == (label == "tampered")
+
+            writer.writerow({
+                "source_id": r.get("source_id", ""),
+                "attack_type": r.get("attack_type", "none"),
+                "label": label,
+                "ground_truth_bbox": str(gt_bbox) if gt_bbox else "",
+                "ela_detected": ela_detected,
+                "ela_anomaly_score": ela_score,
+                "ela_candidate_bbox": str(ela_bbox) if ela_bbox else "",
+                "ela_iou": ela_iou,
+                "copy_move_detected": cm_detected,
+                "copy_move_inliers": cm_inliers,
+                "copy_move_confidence": cm_conf,
+                "copy_move_bbox": str(cm_bbox) if cm_bbox else "",
+                "copy_move_iou": cm_iou,
+                "fused_flagged": fused_flagged,
+                "verdict_correct": verdict_correct,
+            })
+
+    return out_path
+
+
+def generate_markdown_audit_report(
+    eval_results: dict,
+    filename: str = "m1_forensic_audit_report.md",
+) -> str:
+    """
+    Generate an executive forensic audit report in Markdown format.
+    """
+    reports_dir = get_reports_dir()
+    os.makedirs(reports_dir, exist_ok=True)
+    out_path = os.path.join(reports_dir, filename)
+
+    ela_overall = eval_results.get("ela", {}).get("overall", {})
+    ela_per_attack = eval_results.get("ela", {}).get("per_attack", {})
+    cm_overall = eval_results.get("copy_move", {}).get("overall", {})
+    cm_per_attack = eval_results.get("copy_move", {}).get("per_attack", {})
+    n_samples = eval_results.get("n_samples", 0)
+
+    lines = [
+        "# ForgeLens-X — Milestone 1 Forensic Audit Report",
+        "",
+        f"**Generated At:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"**Total Samples Evaluated:** {n_samples}",
+        "",
+        "## 1. Executive Summary",
+        "",
+        "Milestone 1 establishes the baseline forensic generation and detection framework:",
+        "- **Synthetic Generation**: Procedural identity documents with Indian demographic distribution (`Faker en_IN`), guilloche anti-counterfeiting patterns, and official seal stamps.",
+        "- **JPEG History Simulation**: Rigorous two-stage JPEG compression lifecycle (`save #1 -> reload -> tamper -> save #2`) to realistically simulate compression artifact differentials.",
+        "- **Physical Tamper Types**: Date modification, alphanumeric text editing, photographic portrait splicing (with sensor micro-noise injection), and copy-move region duplication.",
+        "- **Forensic Detectors**: Calibrated Error Level Analysis (ELA) with statistical baseline z-score filtering, and ORB + RANSAC homography copy-move detection with spatial distance constraints.",
+        "",
+        "## 2. ELA Detection & Localization Performance",
+        "",
+        f"- **Overall Detection Rate (TP Rate):** {ela_overall.get('detection_rate', 0.0) * 100:.1f}%",
+        f"- **False Alarm Rate (FP Rate on Genuine):** {ela_overall.get('false_alarm_rate', 0.0) * 100:.1f}%",
+        f"- **Mean Localization IoU (Tampered):** {ela_overall.get('mean_iou', 0.0) if ela_overall.get('mean_iou') is not None else 'N/A'}",
+        "",
+        "| Attack Type | Total | Detected (TP/FP) | Detection Rate | Mean IoU |",
+        "| :--- | :--- | :--- | :--- | :--- |",
+    ]
+
+    for attack, stats in ela_per_attack.items():
+        det_rate = f"{stats.get('detection_rate', 0.0) * 100:.1f}%"
+        mean_iou = f"{stats.get('mean_iou'):.4f}" if stats.get('mean_iou') is not None else "—"
+        total = stats.get("total", 0)
+        detected = stats.get("true_positives", 0) if attack != "none" else stats.get("false_positives", 0)
+        lines.append(f"| `{attack}` | {total} | {detected} | {det_rate} | {mean_iou} |")
+
+    lines.extend([
+        "",
+        "## 3. Copy-Move Detection & Localization Performance",
+        "",
+        f"- **Overall Detection Rate:** {cm_overall.get('detection_rate', 0.0) * 100:.1f}%",
+        f"- **False Alarm Rate (Genuine):** {cm_overall.get('false_alarm_rate', 0.0) * 100:.1f}%",
+        f"- **Mean Localization IoU (on Copy-Move):** {cm_per_attack.get('copy_move', {}).get('mean_iou', 'N/A')}",
+        "",
+        "| Attack Type | Total | Inliers Detected | Detection Rate | Mean IoU |",
+        "| :--- | :--- | :--- | :--- | :--- |",
+    ])
+
+    for attack, stats in cm_per_attack.items():
+        det_rate = f"{stats.get('detection_rate', 0.0) * 100:.1f}%"
+        mean_iou = f"{stats.get('mean_iou'):.4f}" if stats.get('mean_iou') is not None else "—"
+        total = stats.get("total", 0)
+        detected = stats.get("true_positives", 0) if attack != "none" else stats.get("false_positives", 0)
+        lines.append(f"| `{attack}` | {total} | {detected} | {det_rate} | {mean_iou} |")
+
+    lines.extend([
+        "",
+        "## 4. Key Engineering & Forensic Findings",
+        "",
+        "1. **Zero-Leakage Splitting**: Splits strictly partitioned by `source_id` guarantee that the document layout and font geometry from a given template cannot leak into calibration or test evaluations.",
+        "2. **Noise Floor Calibration**: Setting a baseline std floor (`sigma_floor = 1.5`) prevents untextured regions (such as solid headers) from generating divide-by-zero division spikes on 1-pixel rounding variations.",
+        "3. **Dual Bounding Box Matching for Copy-Move**: Copy-move operations involve both a source cloning region and a destination pasted region. Checking predictions against both source and destination candidates accurately reflects forensic detection success.",
+        "4. **Need for Multimodal Signal Fusion (M6)**: While ELA excels on photo splicing and text alterations and Copy-Move excels on region cloning, individual forensic detectors have blind spots. Fusion with OCR/MRZ semantic consistency (M3/M4) and Face Verification (M2) in M6 provides complete coverage targeting >95% system-level screening accuracy.",
+        "",
+    ])
+
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+
+    return out_path
