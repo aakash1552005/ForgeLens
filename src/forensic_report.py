@@ -49,6 +49,12 @@ def _load_m5_config() -> Dict[str, Any]:
             "min_height": 400,
             "min_ocr_confidence": 0.40,
             "high_ocr_confidence": 0.75,
+            "min_brightness": 20.0,
+            "max_brightness": 245.0,
+            "min_contrast": 15.0,
+            "max_color_cast": 65.0,
+            "min_aspect_ratio": 1.0,
+            "max_aspect_ratio": 2.2,
             "enable_quality_gating": True,
         },
         "spatial_correlation": {
@@ -100,16 +106,20 @@ def analyze_document_quality(
     """
     Assess optical document scan quality to prevent false fraud accusations.
     Evaluates sharpness (Laplacian variance), dimensional resolution, illumination
-    (mean brightness), contrast standard deviation, and OCR recognition confidence.
+    (mean brightness), contrast standard deviation, color cast, aspect ratio plausibility,
+    and OCR recognition confidence.
 
     Returns:
         {
             "blur_score": float,
             "resolution_ok": bool,
             "dimensions": [width, height],
+            "aspect_ratio": float,
             "mean_brightness": float,
             "contrast_std": float,
+            "color_cast_score": float,
             "ocr_mean_confidence": float or null,
+            "field_completeness_ratio": float,
             "analysis_reliability": "HIGH" | "MEDIUM" | "LOW",
             "quality_flags": list of str
         }
@@ -126,21 +136,30 @@ def analyze_document_quality(
     min_bright = q_cfg.get("min_brightness", 20.0)
     max_bright = q_cfg.get("max_brightness", 245.0)
     min_contrast = q_cfg.get("min_contrast", 15.0)
+    max_cast = q_cfg.get("max_color_cast", 65.0)
+    min_ar = q_cfg.get("min_aspect_ratio", 1.0)
+    max_ar = q_cfg.get("max_aspect_ratio", 2.2)
 
     if image_bgr is None or image_bgr.size == 0:
         return {
             "blur_score": 0.0,
             "resolution_ok": False,
             "dimensions": [0, 0],
+            "aspect_ratio": 0.0,
             "mean_brightness": 0.0,
             "contrast_std": 0.0,
+            "color_cast_score": 0.0,
             "ocr_mean_confidence": 0.0,
+            "field_completeness_ratio": 0.0,
             "analysis_reliability": "LOW",
             "quality_flags": ["EMPTY_OR_UNREADABLE_IMAGE"],
         }
 
     h, w = image_bgr.shape[:2]
     resolution_ok = bool(w >= min_w and h >= min_h)
+
+    # Compute geometric aspect ratio (width / height)
+    aspect_ratio = round(float(w / max(1, h)), 3)
 
     # Compute sharpness via Laplacian variance
     gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY) if len(image_bgr.shape) == 3 else image_bgr
@@ -150,6 +169,13 @@ def analyze_document_quality(
     # Compute illumination and contrast metrics
     mean_bright = round(float(np.mean(gray)), 2)
     contrast_std = round(float(np.std(gray)), 2)
+
+    # Compute color cast / chromatic imbalance (channel delta)
+    if len(image_bgr.shape) == 3 and image_bgr.shape[2] == 3:
+        ch_means = [float(np.mean(image_bgr[:, :, c])) for c in range(3)]
+        color_cast_score = round(float(max(ch_means) - min(ch_means)), 2)
+    else:
+        color_cast_score = 0.0
 
     # Compute OCR confidence across recognized fields
     ocr_confs = []
@@ -163,6 +189,13 @@ def analyze_document_quality(
 
     ocr_mean = round(float(np.mean(ocr_confs)), 3) if ocr_confs else None
 
+    # Compute field completeness ratio across standard credential fields
+    field_comp_ratio = 0.0
+    if ocr_fields:
+        mandatory = ["name", "document_number", "dob", "expiry_date"]
+        found = sum(1 for m in mandatory if ocr_fields.get(m, {}).get("value"))
+        field_comp_ratio = round(float(found / len(mandatory)), 2)
+
     flags = []
     if blur_score < min_blur:
         flags.append(f"HEAVY_BLUR (score={blur_score} < {min_blur})")
@@ -172,6 +205,9 @@ def analyze_document_quality(
     if not resolution_ok:
         flags.append(f"LOW_RESOLUTION ({w}x{h} < {min_w}x{min_h})")
 
+    if aspect_ratio < min_ar or aspect_ratio > max_ar:
+        flags.append(f"NON_STANDARD_ASPECT_RATIO (ratio={aspect_ratio} outside [{min_ar}, {max_ar}])")
+
     if mean_bright < min_bright:
         flags.append(f"EXTREME_UNDEREXPOSURE (brightness={mean_bright} < {min_bright})")
     elif mean_bright > max_bright:
@@ -179,6 +215,9 @@ def analyze_document_quality(
 
     if contrast_std < min_contrast:
         flags.append(f"INSUFFICIENT_CONTRAST (std={contrast_std} < {min_contrast})")
+
+    if color_cast_score > max_cast:
+        flags.append(f"STRONG_COLOR_CAST (imbalance={color_cast_score} > {max_cast})")
 
     if ocr_mean is not None and ocr_mean < min_ocr:
         flags.append(f"LOW_OCR_CONFIDENCE ({ocr_mean} < {min_ocr})")
@@ -191,6 +230,8 @@ def analyze_document_quality(
         or mean_bright < min_bright
         or mean_bright > max_bright
         or contrast_std < min_contrast
+        or aspect_ratio < 0.60
+        or aspect_ratio > 3.0
     )
 
     if is_critically_degraded:
@@ -204,9 +245,12 @@ def analyze_document_quality(
         "blur_score": blur_score,
         "resolution_ok": resolution_ok,
         "dimensions": [int(w), int(h)],
+        "aspect_ratio": aspect_ratio,
         "mean_brightness": mean_bright,
         "contrast_std": contrast_std,
+        "color_cast_score": color_cast_score,
         "ocr_mean_confidence": ocr_mean,
+        "field_completeness_ratio": field_comp_ratio,
         "analysis_reliability": reliability,
         "quality_flags": flags,
     }
@@ -685,38 +729,43 @@ def compute_attack_hypotheses_and_severity(
     if face_verification.get("has_face_check") and face_verification.get("verified") is False:
         scores["photo_swap"] += 0.80
 
-    ranked = [
-        {"attack_type": k, "score": round(float(v), 3)}
-        for k, v in sorted(scores.items(), key=lambda x: x[1], reverse=True)
-        if v >= 0.15
-    ]
-
-    other_attacks = [item for item in ranked if item["attack_type"] != attack_guess]
-    secondary = other_attacks[0] if other_attacks else None
-    sec_guess = secondary["attack_type"] if secondary and secondary["score"] >= sec_th else None
-    sec_conf = round(float(min(0.95, secondary["score"] * 0.90)), 2) if sec_guess else None
-    multi_attack = bool(sec_guess and secondary["score"] >= (sec_th + 0.05))
-
-    # Fraud severity
-    has_corroboration = (
-        any(chk.get("status") == "FAIL" for chk in semantic_checks)
-        or (font_audit and font_audit.get("typography_verdict") == "SUSPECT_FONT_INCONSISTENCY")
-        or (cm.get("detected") is True)
-        or (face_verification.get("has_face_check") and face_verification.get("verified") is False)
-    )
-
     if attack_guess == "none":
+        ranked = []
+        sec_guess = None
+        sec_conf = None
+        multi_attack = False
         severity = "NONE"
-    elif (
-        (attack_guess == "photo_swap" and face_verification.get("has_face_check") and face_verification.get("verified") is False and (face_verification.get("distance") or 0.0) >= 0.45)
-        or (attack_guess == "copy_move" and cm.get("num_matches", 0) >= 30)
-        or (attack_guess in ["date_edit", "text_edit"] and has_corroboration and attack_conf >= 0.80)
-    ):
-        severity = "CRITICAL"
-    elif attack_conf >= 0.60 or has_corroboration:
-        severity = "HIGH"
     else:
-        severity = "MODERATE"
+        ranked = [
+            {"attack_type": k, "score": round(float(v), 3)}
+            for k, v in sorted(scores.items(), key=lambda x: x[1], reverse=True)
+            if v >= 0.15
+        ]
+
+        other_attacks = [item for item in ranked if item["attack_type"] != attack_guess]
+        secondary = other_attacks[0] if other_attacks else None
+        sec_guess = secondary["attack_type"] if secondary and secondary["score"] >= sec_th else None
+        sec_conf = round(float(min(0.95, secondary["score"] * 0.90)), 2) if sec_guess else None
+        multi_attack = bool(sec_guess and secondary["score"] >= (sec_th + 0.05))
+
+        # Fraud severity
+        has_corroboration = (
+            any(chk.get("status") == "FAIL" for chk in semantic_checks)
+            or (font_audit and font_audit.get("typography_verdict") == "SUSPECT_FONT_INCONSISTENCY")
+            or (cm.get("detected") is True)
+            or (face_verification.get("has_face_check") and face_verification.get("verified") is False)
+        )
+
+        if (
+            (attack_guess == "photo_swap" and face_verification.get("has_face_check") and face_verification.get("verified") is False and (face_verification.get("distance") or 0.0) >= 0.45)
+            or (attack_guess == "copy_move" and cm.get("num_matches", 0) >= 30)
+            or (attack_guess in ["date_edit", "text_edit"] and has_corroboration and attack_conf >= 0.80)
+        ):
+            severity = "CRITICAL"
+        elif attack_conf >= 0.60 or has_corroboration:
+            severity = "HIGH"
+        else:
+            severity = "MODERATE"
 
     return {
         "secondary_attack_guess": sec_guess,
@@ -799,6 +848,8 @@ def extract_m6_feature_vector(report: Dict[str, Any]) -> Dict[str, float]:
     f_vec["quality_is_low_reliability"] = 1.0 if qual.get("analysis_reliability") == "LOW" else 0.0
     f_vec["quality_mean_brightness"] = float(qual.get("mean_brightness", 128.0)) / 255.0
     f_vec["quality_contrast_std"] = min(1.0, float(qual.get("contrast_std", 50.0)) / 100.0)
+    f_vec["quality_aspect_ratio"] = float(qual.get("aspect_ratio", 1.54))
+    f_vec["quality_field_completeness"] = float(qual.get("field_completeness_ratio", 1.0))
 
     # 9. Multi-Attack & Hypothesis Ranking
     f_vec["multi_attack_detected"] = 1.0 if report.get("multi_attack_detected") else 0.0
@@ -813,12 +864,47 @@ def extract_m6_feature_vector(report: Dict[str, Any]) -> Dict[str, float]:
     # 11. Suspicious Regions Count
     f_vec["suspicious_regions_count"] = float(len(report.get("suspicious_regions", [])))
 
+    # 12. Face Area Ratio
+    face_area = report.get("face_verification", {}).get("face_area_ratio")
+    f_vec["face_area_ratio"] = float(face_area) if face_area is not None else 0.0
+
     return f_vec
 
 
 # ---------------------------------------------------------------------------
 # 5. Master Pipeline: Generate Unified Forensic Report
 # ---------------------------------------------------------------------------
+
+def generate_executive_summary(
+    decision: str,
+    attack_guess: str,
+    attack_conf: float,
+    fraud_severity: str,
+    quality: Dict[str, Any],
+    secondary_attack: Optional[str] = None,
+    suspicious_regions_count: int = 0,
+) -> str:
+    """Produce concise, unambiguous one-line executive verdict for audits."""
+    if decision == "CLEAR_AUTHENTIC":
+        return (
+            f"AUTHENTIC: Document verified with high scan fidelity "
+            f"(sharpness={quality.get('blur_score', 0.0):.1f}) and zero corroborated "
+            f"physical, typographic, biometric, or semantic anomalies."
+        )
+    elif decision == "INSUFFICIENT_EVIDENCE":
+        q_reasons = ", ".join(quality.get("quality_flags", ["degraded scan"]))
+        return (
+            f"INSUFFICIENT EVIDENCE: Scan quality is degraded ({q_reasons}); "
+            f"recommend requesting a high-resolution optical rescan before definitive fraud disposition."
+        )
+    elif decision in ["SUSPECT_TAMPERING", "CRITICAL_FRAUD"]:
+        sec_clause = f" with co-occurring {secondary_attack.upper()} manipulation" if secondary_attack else ""
+        return (
+            f"{fraud_severity} FRAUD: Corroborated {attack_guess.upper()} tampering detected "
+            f"({attack_conf * 100:.1f}% confidence, {suspicious_regions_count} suspicious region(s)){sec_clause}."
+        )
+    return "REVIEW RECOMMENDED: Borderline forensic indicators require secondary examiner inspection."
+
 
 def generate_unified_forensic_report(
     image_path: str,
@@ -844,13 +930,17 @@ def generate_unified_forensic_report(
             "schema_version": "1.0",
             "document_id": doc_id,
             "document_type": doc_type,
+            "executive_summary": "INSUFFICIENT EVIDENCE: Document image file could not be read or opened.",
             "quality": {
                 "blur_score": 0.0,
                 "resolution_ok": False,
                 "dimensions": [0, 0],
+                "aspect_ratio": 0.0,
                 "mean_brightness": 0.0,
                 "contrast_std": 0.0,
+                "color_cast_score": 0.0,
                 "ocr_mean_confidence": None,
+                "field_completeness_ratio": 0.0,
                 "analysis_reliability": "LOW",
                 "quality_flags": ["FILE_NOT_FOUND_OR_CORRUPT"],
             },
@@ -860,7 +950,7 @@ def generate_unified_forensic_report(
                 "ela": {"candidate_bbox": [], "confidence": None, "features": {}},
                 "copy_move": {"bbox": [], "alt_bbox": [], "num_matches": 0, "confidence": None},
             },
-            "face_verification": {"has_face_check": False, "verified": None, "distance": None},
+            "face_verification": {"has_face_check": False, "verified": None, "distance": None, "face_area_ratio": 0.0},
             "suspicious_regions": [],
             "attack_type_guess": "none",
             "attack_type_confidence": 0.0,
@@ -952,6 +1042,13 @@ def generate_unified_forensic_report(
     doc_face_info = extract_face_from_document(image_path)
     has_face_check = bool(reference_face_path and os.path.exists(reference_face_path))
 
+    face_area_ratio = 0.0
+    if doc_face_info and doc_face_info.get("bbox"):
+        fb = doc_face_info["bbox"]
+        fb_area = max(0, (fb[2] - fb[0]) * (fb[3] - fb[1]))
+        total_doc_area = max(1, img_bgr.shape[0] * img_bgr.shape[1])
+        face_area_ratio = round(float(fb_area / total_doc_area), 4)
+
     if has_face_check:
         face_audit = verify_document_face(image_path, reference_face_path)
         face_verification = {
@@ -963,6 +1060,7 @@ def generate_unified_forensic_report(
             "model": face_audit.get("model"),
             "face_detected": bool(doc_face_info is not None),
             "face_bbox": [int(x) for x in doc_face_info.get("bbox", [])] if doc_face_info and doc_face_info.get("bbox") else None,
+            "face_area_ratio": face_area_ratio,
             "warnings": face_audit.get("warnings", []),
         }
     else:
@@ -975,6 +1073,7 @@ def generate_unified_forensic_report(
             "model": None,
             "face_detected": bool(doc_face_info is not None),
             "face_bbox": [int(x) for x in doc_face_info.get("bbox", [])] if doc_face_info and doc_face_info.get("bbox") else None,
+            "face_area_ratio": face_area_ratio,
             "warnings": [],
         }
 
@@ -1038,12 +1137,23 @@ def generate_unified_forensic_report(
         config=config,
     )
 
+    exec_summary = generate_executive_summary(
+        decision=decision,
+        attack_guess=attack_guess,
+        attack_conf=attack_conf,
+        fraud_severity=hypo_info["fraud_severity"],
+        quality=quality,
+        secondary_attack=hypo_info["secondary_attack_guess"] if hypo_info["multi_attack_detected"] else None,
+        suspicious_regions_count=len(suspicious_regions),
+    )
+
     # Assemble Canonical Milestone 5 Unified Report
     report = {
         "schema_version": "1.0",
         "document_id": doc_id,
         "document_type": doc_type,
         "timestamp_utc": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+        "executive_summary": exec_summary,
         "quality": quality,
         "fields": formatted_fields,
         "semantic_checks": semantic_checks,

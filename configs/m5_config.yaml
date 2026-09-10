@@ -13,6 +13,9 @@ quality:
   min_brightness: 20.0          # Pitch black / underexposed scan threshold
   max_brightness: 245.0         # Washed out / overexposed glare threshold
   min_contrast: 15.0            # Uniform gray canvas / low contrast threshold
+  max_color_cast: 65.0          # Maximum allowable color imbalance delta
+  min_aspect_ratio: 1.0         # Minimum standard card ratio (width / height)
+  max_aspect_ratio: 2.2         # Maximum standard card ratio
   enable_quality_gating: true   # Route low quality scans to INSUFFICIENT_EVIDENCE
 
 spatial_correlation:

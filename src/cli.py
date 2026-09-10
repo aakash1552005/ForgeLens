@@ -1238,10 +1238,17 @@ def cmd_unified_screen(args):
         export_unified_report(report, json_path=json_path)
 
     # Print executive terminal summary
-    print(f"Quality Reliability : {report['quality']['analysis_reliability']} (Sharpness: {report['quality']['blur_score']:.1f})")
+    q = report['quality']
+    print(f"Quality Reliability : {q['analysis_reliability']} (Sharpness: {q['blur_score']:.1f}, Brightness: {q['mean_brightness']:.1f}, Aspect: {q.get('aspect_ratio', 0.0):.2f})")
     print(f"Decision Tier       : {report['decision']}")
+    print(f"Fraud Severity      : {report.get('fraud_severity', 'NONE')}")
     print(f"Attack Hypothesis   : {report['attack_type_guess'].upper()} (Confidence: {report['attack_type_confidence']*100:.1f}%)")
+    if report.get("multi_attack_detected") and report.get("secondary_attack_guess"):
+        sec_att = report['secondary_attack_guess'].upper()
+        sec_conf = report.get('secondary_attack_confidence') or 0.0
+        print(f"Co-occurring Attack : {sec_att} (Confidence: {sec_conf*100:.1f}%)")
     print(f"Suspicious Regions  : {len(report['suspicious_regions'])} detected")
+    print(f"Executive Summary   : {report.get('executive_summary', '')}")
     print("\nEvidentiary Basis:")
     for b in report["attack_type_basis"][:5]:
         print(f"  * {b}")
@@ -1257,13 +1264,14 @@ def cmd_unified_screen(args):
 def cmd_unified_eval(args):
     """
     Run full M5 evaluation benchmark across genuine, tampered, and degraded documents.
-    Usage: py -m src.cli unified-eval [--samples 15] [--cards 4]
+    Usage: py -m src.cli unified-eval [--samples 15] [--cards 4] [--dataset {all,synthetic,degraded}]
     """
     from src.unified_evaluate import run_unified_m5_benchmark
 
     print("=" * 65)
     print("ForgeLens-X — Milestone 5 Unified Forensic Benchmark")
     print("=" * 65)
+    print(f"Dataset scope:        {getattr(args, 'dataset', 'all')}")
     print(f"Samples per category: {args.samples}")
     print(f"Diagnostic cards:     {args.cards}")
     print("-" * 65)
@@ -1271,6 +1279,7 @@ def cmd_unified_eval(args):
     res = run_unified_m5_benchmark(
         samples_per_category=args.samples,
         num_cards=args.cards,
+        dataset_scope=getattr(args, "dataset", "all"),
     )
 
     metrics = res["metrics"]

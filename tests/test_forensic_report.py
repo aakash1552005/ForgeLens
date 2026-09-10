@@ -438,3 +438,109 @@ def test_compute_attack_hypotheses_and_severity():
     assert res["fraud_severity"] == "CRITICAL"
     assert len(res["attack_hypotheses_ranked"]) >= 2
 
+
+def test_quality_aspect_ratio_and_color_cast():
+    """Verify aspect ratio calculation and color cast detection in document quality analysis."""
+    # 1. Extreme aspect ratio (very tall strip, ratio = 200 / 800 = 0.25)
+    tall_img = np.full((800, 200, 3), 200, dtype=np.uint8)
+    q_tall = analyze_document_quality(tall_img)
+    assert q_tall["aspect_ratio"] == 0.25
+    assert q_tall["analysis_reliability"] == "LOW"
+    assert any("NON_STANDARD_ASPECT_RATIO" in f for f in q_tall["quality_flags"])
+
+    # 2. Strong chromatic imbalance / color cast (e.g. bright red tint)
+    red_img = np.full((500, 800, 3), 200, dtype=np.uint8)
+    red_img[:, :, 2] = 250  # R channel high
+    red_img[:, :, 0] = 50   # B channel low
+    q_red = analyze_document_quality(red_img)
+    assert q_red["color_cast_score"] >= 65.0
+    assert any("STRONG_COLOR_CAST" in f for f in q_red["quality_flags"])
+
+
+def test_executive_summary_generation():
+    """Verify one-line executive summary generation across different decision and fraud states."""
+    from src.forensic_report import generate_executive_summary
+
+    # Authentic
+    s_auth = generate_executive_summary(
+        decision="CLEAR_AUTHENTIC",
+        attack_guess="none",
+        attack_conf=0.0,
+        fraud_severity="NONE",
+        quality={"blur_score": 115.0},
+    )
+    assert "AUTHENTIC" in s_auth
+    assert "zero corroborated" in s_auth
+
+    # Insufficient Evidence
+    s_insuf = generate_executive_summary(
+        decision="INSUFFICIENT_EVIDENCE",
+        attack_guess="none",
+        attack_conf=0.0,
+        fraud_severity="NONE",
+        quality={"quality_flags": ["HEAVY_BLUR"]},
+    )
+    assert "INSUFFICIENT EVIDENCE" in s_insuf
+    assert "HEAVY_BLUR" in s_insuf
+
+    # Critical Fraud with co-occurring attack
+    s_fraud = generate_executive_summary(
+        decision="SUSPECT_TAMPERING",
+        attack_guess="date_edit",
+        attack_conf=0.88,
+        fraud_severity="CRITICAL",
+        quality={"blur_score": 120.0},
+        secondary_attack="text_edit",
+        suspicious_regions_count=2,
+    )
+    assert "CRITICAL FRAUD" in s_fraud
+    assert "DATE_EDIT" in s_fraud
+    assert "TEXT_EDIT" in s_fraud
+
+
+def test_feature_vector_expanded_27_dimensions():
+    """Verify that extract_m6_feature_vector produces 27 numeric, non-NaN features."""
+    dummy_report = {
+        "tamper_signals": {
+            "ela": {"features": {"mean": 5.2, "std": 1.1, "max": 25.0, "p95": 8.0, "p99": 14.0, "high_error_pixel_ratio": 0.01}},
+            "copy_move": {"num_matches": 16, "confidence": 0.88},
+        },
+        "semantic_checks": [{"check": "chronology_order", "status": "PASS"}],
+        "mrz": {"status": "PASS"},
+        "face_verification": {"has_face_check": True, "distance": 0.28, "verified": True, "face_area_ratio": 0.125},
+        "font_forensics": {"max_stroke_zscore": 1.2, "typography_verdict": "UNIFORM_TYPOGRAPHY"},
+        "metadata_forensics": {"is_tampered": False, "has_exif": True},
+        "quality": {
+            "blur_score": 120.0,
+            "resolution_ok": True,
+            "ocr_mean_confidence": 0.92,
+            "analysis_reliability": "HIGH",
+            "mean_brightness": 180.0,
+            "contrast_std": 45.0,
+            "aspect_ratio": 1.54,
+            "field_completeness_ratio": 1.0,
+        },
+        "suspicious_regions": [],
+    }
+
+    f_vec = extract_m6_feature_vector(dummy_report)
+    assert len(f_vec) >= 27
+    assert "quality_aspect_ratio" in f_vec
+    assert "quality_field_completeness" in f_vec
+    assert "face_area_ratio" in f_vec
+    for k, v in f_vec.items():
+        assert isinstance(v, (int, float)), f"Feature {k} is not a number: {v}"
+        assert not np.isnan(v), f"Feature {k} is NaN"
+
+
+def test_benchmark_dataset_scope_filtering():
+    """Verify dataset_scope argument filters evaluation categories correctly."""
+    from src.unified_evaluate import run_unified_m5_benchmark
+
+    # Test scope: "degraded" (only genuine baseline + degraded scans)
+    res = run_unified_m5_benchmark(samples_per_category=2, num_cards=0, dataset_scope="degraded")
+    assert res["metrics"]["total_documents_audited"] > 0
+    assert res["metrics"]["tampered_count"] == 0
+    assert res["metrics"]["degraded_count"] > 0
+
+

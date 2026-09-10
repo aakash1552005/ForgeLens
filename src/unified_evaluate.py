@@ -52,9 +52,11 @@ def create_synthetic_degraded_document(
 def run_unified_m5_benchmark(
     samples_per_category: int = 15,
     num_cards: int = 4,
+    dataset_scope: str = "all",
 ) -> Dict[str, Any]:
     """
     Execute full multi-modal benchmark across genuine, tampered, and degraded documents.
+    Supports dataset_scope: "all", "synthetic", "degraded".
     """
     reports_dir = get_reports_dir()
     ensure_dirs(reports_dir)
@@ -116,196 +118,198 @@ def run_unified_m5_benchmark(
     # -----------------------------------------------------------------------
     # 2. Benchmark Date-Edit Tampered Documents
     # -----------------------------------------------------------------------
-    date_files = []
-    if os.path.exists(gen_meta_dir):
-        date_files = sorted([
-            os.path.join(gen_meta_dir, f) for f in os.listdir(gen_meta_dir)
-            if f.endswith("_date_edit.json")
-        ])[:samples_per_category]
+    if dataset_scope in ["all", "synthetic"]:
+        date_files = []
+        if os.path.exists(gen_meta_dir):
+            date_files = sorted([
+                os.path.join(gen_meta_dir, f) for f in os.listdir(gen_meta_dir)
+                if f.endswith("_date_edit.json")
+            ])[:samples_per_category]
 
-    print(f"[*] Benchmarking {len(date_files)} Date-Edit documents...")
-    for d_path in date_files:
-        with open(d_path, "r", encoding="utf-8") as f:
-            meta = json.load(f)
+        print(f"[*] Benchmarking {len(date_files)} Date-Edit documents...")
+        for d_path in date_files:
+            with open(d_path, "r", encoding="utf-8") as f:
+                meta = json.load(f)
 
-        img_path = meta.get("image_path")
-        doc_id = meta.get("source_id", os.path.splitext(os.path.basename(d_path))[0])
+            img_path = meta.get("image_path")
+            doc_id = meta.get("source_id", os.path.splitext(os.path.basename(d_path))[0])
 
-        report = generate_unified_forensic_report(img_path)
+            report = generate_unified_forensic_report(img_path)
 
-        card_path = None
-        if card_renders < num_cards and img_path and os.path.exists(img_path):
-            doc_bgr = cv2.imread(img_path)
-            c_img, card_path = render_unified_forensic_card(doc_bgr, report)
-            card_renders += 1
+            card_path = None
+            if card_renders < num_cards and img_path and os.path.exists(img_path):
+                doc_bgr = cv2.imread(img_path)
+                c_img, card_path = render_unified_forensic_card(doc_bgr, report)
+                card_renders += 1
 
-        all_records.append({
-            "doc_id": doc_id,
-            "category": "date_edit",
-            "ground_truth_attack": "date_edit",
-            "predicted_attack": report["attack_type_guess"],
-            "attack_confidence": report["attack_type_confidence"],
-            "decision": report["decision"],
-            "reliability": report["quality"]["analysis_reliability"],
-            "blur_score": report["quality"]["blur_score"],
-            "suspicious_regions_count": len(report["suspicious_regions"]),
-            "is_correct_attack": bool(report["attack_type_guess"] == "date_edit"),
-            "is_false_alarm": False,
-            "card_path": card_path,
-        })
+            all_records.append({
+                "doc_id": doc_id,
+                "category": "date_edit",
+                "ground_truth_attack": "date_edit",
+                "predicted_attack": report["attack_type_guess"],
+                "attack_confidence": report["attack_type_confidence"],
+                "decision": report["decision"],
+                "reliability": report["quality"]["analysis_reliability"],
+                "blur_score": report["quality"]["blur_score"],
+                "suspicious_regions_count": len(report["suspicious_regions"]),
+                "is_correct_attack": bool(report["attack_type_guess"] == "date_edit"),
+                "is_false_alarm": False,
+                "card_path": card_path,
+            })
 
-    # -----------------------------------------------------------------------
-    # 3. Benchmark Text-Edit Tampered Documents
-    # -----------------------------------------------------------------------
-    text_files = []
-    if os.path.exists(gen_meta_dir):
-        text_files = sorted([
-            os.path.join(gen_meta_dir, f) for f in os.listdir(gen_meta_dir)
-            if f.endswith("_text_edit.json")
-        ])[:samples_per_category]
+        # -----------------------------------------------------------------------
+        # 3. Benchmark Text-Edit Tampered Documents
+        # -----------------------------------------------------------------------
+        text_files = []
+        if os.path.exists(gen_meta_dir):
+            text_files = sorted([
+                os.path.join(gen_meta_dir, f) for f in os.listdir(gen_meta_dir)
+                if f.endswith("_text_edit.json")
+            ])[:samples_per_category]
 
-    print(f"[*] Benchmarking {len(text_files)} Text-Edit documents...")
-    for t_path in text_files:
-        with open(t_path, "r", encoding="utf-8") as f:
-            meta = json.load(f)
+        print(f"[*] Benchmarking {len(text_files)} Text-Edit documents...")
+        for t_path in text_files:
+            with open(t_path, "r", encoding="utf-8") as f:
+                meta = json.load(f)
 
-        img_path = meta.get("image_path")
-        doc_id = meta.get("source_id", os.path.splitext(os.path.basename(t_path))[0])
+            img_path = meta.get("image_path")
+            doc_id = meta.get("source_id", os.path.splitext(os.path.basename(t_path))[0])
 
-        report = generate_unified_forensic_report(img_path)
+            report = generate_unified_forensic_report(img_path)
 
-        card_path = None
-        if card_renders < num_cards and img_path and os.path.exists(img_path):
-            doc_bgr = cv2.imread(img_path)
-            c_img, card_path = render_unified_forensic_card(doc_bgr, report)
-            card_renders += 1
+            card_path = None
+            if card_renders < num_cards and img_path and os.path.exists(img_path):
+                doc_bgr = cv2.imread(img_path)
+                c_img, card_path = render_unified_forensic_card(doc_bgr, report)
+                card_renders += 1
 
-        all_records.append({
-            "doc_id": doc_id,
-            "category": "text_edit",
-            "ground_truth_attack": "text_edit",
-            "predicted_attack": report["attack_type_guess"],
-            "attack_confidence": report["attack_type_confidence"],
-            "decision": report["decision"],
-            "reliability": report["quality"]["analysis_reliability"],
-            "blur_score": report["quality"]["blur_score"],
-            "suspicious_regions_count": len(report["suspicious_regions"]),
-            "is_correct_attack": bool(report["attack_type_guess"] == "text_edit"),
-            "is_false_alarm": False,
-            "card_path": card_path,
-        })
+            all_records.append({
+                "doc_id": doc_id,
+                "category": "text_edit",
+                "ground_truth_attack": "text_edit",
+                "predicted_attack": report["attack_type_guess"],
+                "attack_confidence": report["attack_type_confidence"],
+                "decision": report["decision"],
+                "reliability": report["quality"]["analysis_reliability"],
+                "blur_score": report["quality"]["blur_score"],
+                "suspicious_regions_count": len(report["suspicious_regions"]),
+                "is_correct_attack": bool(report["attack_type_guess"] == "text_edit"),
+                "is_false_alarm": False,
+                "card_path": card_path,
+            })
 
-    # -----------------------------------------------------------------------
-    # 4. Benchmark Photo-Swap Documents (with paired selfie)
-    # -----------------------------------------------------------------------
-    photo_files = []
-    if os.path.exists(gen_meta_dir):
-        photo_files = sorted([
-            os.path.join(gen_meta_dir, f) for f in os.listdir(gen_meta_dir)
-            if f.endswith("_photo_swap.json")
-        ])[:min(10, samples_per_category)]
+        # -----------------------------------------------------------------------
+        # 4. Benchmark Photo-Swap Documents (with paired selfie)
+        # -----------------------------------------------------------------------
+        photo_files = []
+        if os.path.exists(gen_meta_dir):
+            photo_files = sorted([
+                os.path.join(gen_meta_dir, f) for f in os.listdir(gen_meta_dir)
+                if f.endswith("_photo_swap.json")
+            ])[:min(10, samples_per_category)]
 
-    ref_face_path = os.path.join(test_face_dir, "david1.jpg") if os.path.exists(test_face_dir) else None
+        ref_face_path = os.path.join(test_face_dir, "david1.jpg") if os.path.exists(test_face_dir) else None
 
-    print(f"[*] Benchmarking {len(photo_files)} Photo-Swap documents...")
-    for p_path in photo_files:
-        with open(p_path, "r", encoding="utf-8") as f:
-            meta = json.load(f)
+        print(f"[*] Benchmarking {len(photo_files)} Photo-Swap documents...")
+        for p_path in photo_files:
+            with open(p_path, "r", encoding="utf-8") as f:
+                meta = json.load(f)
 
-        img_path = meta.get("image_path")
-        doc_id = meta.get("source_id", os.path.splitext(os.path.basename(p_path))[0])
+            img_path = meta.get("image_path")
+            doc_id = meta.get("source_id", os.path.splitext(os.path.basename(p_path))[0])
 
-        report = generate_unified_forensic_report(img_path, reference_face_path=ref_face_path)
+            report = generate_unified_forensic_report(img_path, reference_face_path=ref_face_path)
 
-        all_records.append({
-            "doc_id": doc_id,
-            "category": "photo_swap",
-            "ground_truth_attack": "photo_swap",
-            "predicted_attack": report["attack_type_guess"],
-            "attack_confidence": report["attack_type_confidence"],
-            "decision": report["decision"],
-            "reliability": report["quality"]["analysis_reliability"],
-            "blur_score": report["quality"]["blur_score"],
-            "suspicious_regions_count": len(report["suspicious_regions"]),
-            "is_correct_attack": bool(report["attack_type_guess"] == "photo_swap"),
-            "is_false_alarm": False,
-            "card_path": None,
-        })
+            all_records.append({
+                "doc_id": doc_id,
+                "category": "photo_swap",
+                "ground_truth_attack": "photo_swap",
+                "predicted_attack": report["attack_type_guess"],
+                "attack_confidence": report["attack_type_confidence"],
+                "decision": report["decision"],
+                "reliability": report["quality"]["analysis_reliability"],
+                "blur_score": report["quality"]["blur_score"],
+                "suspicious_regions_count": len(report["suspicious_regions"]),
+                "is_correct_attack": bool(report["attack_type_guess"] == "photo_swap"),
+                "is_false_alarm": False,
+                "card_path": None,
+            })
 
-    # -----------------------------------------------------------------------
-    # 5. Benchmark Copy-Move Cloned Documents
-    # -----------------------------------------------------------------------
-    cm_files = []
-    if os.path.exists(gen_meta_dir):
-        cm_files = sorted([
-            os.path.join(gen_meta_dir, f) for f in os.listdir(gen_meta_dir)
-            if f.endswith("_copy_move.json")
-        ])[:min(10, samples_per_category)]
+        # -----------------------------------------------------------------------
+        # 5. Benchmark Copy-Move Cloned Documents
+        # -----------------------------------------------------------------------
+        cm_files = []
+        if os.path.exists(gen_meta_dir):
+            cm_files = sorted([
+                os.path.join(gen_meta_dir, f) for f in os.listdir(gen_meta_dir)
+                if f.endswith("_copy_move.json")
+            ])[:min(10, samples_per_category)]
 
-    print(f"[*] Benchmarking {len(cm_files)} Copy-Move documents...")
-    for c_path in cm_files:
-        with open(c_path, "r", encoding="utf-8") as f:
-            meta = json.load(f)
+        print(f"[*] Benchmarking {len(cm_files)} Copy-Move documents...")
+        for c_path in cm_files:
+            with open(c_path, "r", encoding="utf-8") as f:
+                meta = json.load(f)
 
-        img_path = meta.get("image_path")
-        doc_id = meta.get("source_id", os.path.splitext(os.path.basename(c_path))[0])
+            img_path = meta.get("image_path")
+            doc_id = meta.get("source_id", os.path.splitext(os.path.basename(c_path))[0])
 
-        report = generate_unified_forensic_report(img_path)
+            report = generate_unified_forensic_report(img_path)
 
-        all_records.append({
-            "doc_id": doc_id,
-            "category": "copy_move",
-            "ground_truth_attack": "copy_move",
-            "predicted_attack": report["attack_type_guess"],
-            "attack_confidence": report["attack_type_confidence"],
-            "decision": report["decision"],
-            "reliability": report["quality"]["analysis_reliability"],
-            "blur_score": report["quality"]["blur_score"],
-            "suspicious_regions_count": len(report["suspicious_regions"]),
-            "is_correct_attack": bool(report["attack_type_guess"] == "copy_move"),
-            "is_false_alarm": False,
-            "card_path": None,
-        })
+            all_records.append({
+                "doc_id": doc_id,
+                "category": "copy_move",
+                "ground_truth_attack": "copy_move",
+                "predicted_attack": report["attack_type_guess"],
+                "attack_confidence": report["attack_type_confidence"],
+                "decision": report["decision"],
+                "reliability": report["quality"]["analysis_reliability"],
+                "blur_score": report["quality"]["blur_score"],
+                "suspicious_regions_count": len(report["suspicious_regions"]),
+                "is_correct_attack": bool(report["attack_type_guess"] == "copy_move"),
+                "is_false_alarm": False,
+                "card_path": None,
+            })
 
     # -----------------------------------------------------------------------
     # 6. Benchmark Quality-Aware Gating (Synthetic Degraded/Blurry Scans)
     # -----------------------------------------------------------------------
-    degraded_samples = []
-    if genuine_files:
-        gen_imgs = []
-        for gf in genuine_files[:5]:
-            with open(gf, "r", encoding="utf-8") as f:
-                p = json.load(f).get("image_path")
-                if p and os.path.exists(p):
-                    gen_imgs.append(p)
+    if dataset_scope in ["all", "degraded"]:
+        degraded_samples = []
+        if genuine_files:
+            gen_imgs = []
+            for gf in genuine_files[:5]:
+                with open(gf, "r", encoding="utf-8") as f:
+                    p = json.load(f).get("image_path")
+                    if p and os.path.exists(p):
+                        gen_imgs.append(p)
 
-        scratch_deg_dir = os.path.join(reports_dir, "scratch")
-        ensure_dirs(scratch_deg_dir)
+            scratch_deg_dir = os.path.join(reports_dir, "scratch")
+            ensure_dirs(scratch_deg_dir)
 
-        for i, gimg in enumerate(gen_imgs):
-            deg_path = os.path.join(scratch_deg_dir, f"degraded_blur_{i}.jpg")
-            create_synthetic_degraded_document(gimg, deg_path, blur_kernel_size=21 + i * 4)
-            degraded_samples.append((f"degraded_sample_{i}", deg_path))
+            for i, gimg in enumerate(gen_imgs):
+                deg_path = os.path.join(scratch_deg_dir, f"degraded_blur_{i}.jpg")
+                create_synthetic_degraded_document(gimg, deg_path, blur_kernel_size=21 + i * 4)
+                degraded_samples.append((f"degraded_sample_{i}", deg_path))
 
-    print(f"[*] Benchmarking {len(degraded_samples)} Degraded / Blurry Quality-Gating documents...")
-    for deg_id, deg_p in degraded_samples:
-        report = generate_unified_forensic_report(deg_p)
-        is_gated = (report["decision"] == "INSUFFICIENT_EVIDENCE" or report["quality"]["analysis_reliability"] == "LOW")
+        print(f"[*] Benchmarking {len(degraded_samples)} Degraded / Blurry Quality-Gating documents...")
+        for deg_id, deg_p in degraded_samples:
+            report = generate_unified_forensic_report(deg_p)
+            is_gated = (report["decision"] == "INSUFFICIENT_EVIDENCE" or report["quality"]["analysis_reliability"] == "LOW")
 
-        all_records.append({
-            "doc_id": deg_id,
-            "category": "degraded_blurry",
-            "ground_truth_attack": "none",
-            "predicted_attack": report["attack_type_guess"],
-            "attack_confidence": report["attack_type_confidence"],
-            "decision": report["decision"],
-            "reliability": report["quality"]["analysis_reliability"],
-            "blur_score": report["quality"]["blur_score"],
-            "suspicious_regions_count": len(report["suspicious_regions"]),
-            "is_correct_attack": is_gated,
-            "is_false_alarm": False,
-            "card_path": None,
-        })
+            all_records.append({
+                "doc_id": deg_id,
+                "category": "degraded_blurry",
+                "ground_truth_attack": "none",
+                "predicted_attack": report["attack_type_guess"],
+                "attack_confidence": report["attack_type_confidence"],
+                "decision": report["decision"],
+                "reliability": report["quality"]["analysis_reliability"],
+                "blur_score": report["quality"]["blur_score"],
+                "suspicious_regions_count": len(report["suspicious_regions"]),
+                "is_correct_attack": is_gated,
+                "is_false_alarm": False,
+                "card_path": None,
+            })
 
     # -----------------------------------------------------------------------
     # Aggregate Forensic Benchmark Metrics
