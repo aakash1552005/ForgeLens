@@ -39,3 +39,24 @@ class TestCLI:
             assert "ForgeLens-X — Forensic Document Screening" in captured.out
             assert "VERDICT:" in captured.out
             assert os.path.exists(out_card)
+
+    def test_screen_identity_cli(self, monkeypatch, capsys):
+        test_faces_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "test_faces")
+        doc_path = os.path.join(test_faces_dir, "doc_with_david.jpg")
+        live_path = os.path.join(test_faces_dir, "david2.jpg")
+
+        if not os.path.exists(doc_path):
+            pytest.skip("doc_with_david fixture not found")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            out_card = os.path.join(tmpdir, "id_screen_card.png")
+            monkeypatch.setattr(
+                "sys.argv",
+                ["forgelens-m1", "screen-identity", doc_path, live_path, "--output", out_card],
+            )
+            main()
+
+            captured = capsys.readouterr()
+            assert "End-to-End Identity Screening" in captured.out
+            assert "OVERALL SCREENING VERDICT:" in captured.out
+            assert os.path.exists(out_card)

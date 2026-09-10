@@ -650,6 +650,30 @@ def cmd_face_eval(args):
     print(f"  • Mean Inference Time:   {metrics['mean_inference_time_ms']:.1f} ms / pair")
     print(f"  • Zero-Crash Failures:   {metrics['failed_pairs']} / {report['n_pairs']}")
 
+    roc = report.get("roc_analysis") or report.get("roc_calibration")
+    if roc and (roc.get("sample_roc_points") or "eer_value" in roc):
+        print("\nROC CURVE & EQUAL ERROR RATE (EER) CALIBRATION:")
+        print(f"  • Equal Error Rate (EER): {roc.get('eer_value', 0.0) * 100:.2f}% at tau = {roc.get('eer_threshold', 0.68):.4f}")
+        print(f"  • ROC Area Under Curve:   {roc.get('auc', 1.0):.4f}")
+        regs = roc.get("operational_regimes", {})
+        if "high_security" in regs:
+            hs = regs["high_security"]
+            print(f"  • High-Security Regime:   tau = {hs['threshold']:.4f} ({hs.get('target', '')})")
+        if "balanced" in regs:
+            be = regs["balanced"]
+            print(f"  • Balanced (EER) Regime:  tau = {be['threshold']:.4f} ({be.get('target', '')})")
+        if "low_friction" in regs:
+            lf = regs["low_friction"]
+            print(f"  • Low-Friction Regime:    tau = {lf['threshold']:.4f} ({lf.get('target', '')})")
+
+    if "demographic_fairness" in report:
+        fair = report["demographic_fairness"]
+        print("\nDEMOGRAPHIC FAIRNESS & PARITY AUDIT:")
+        print(f"  • Fairness Parity Status: {fair.get('fairness_status', 'N/A')}")
+        print(f"  • Max Subgroup Disparity: {fair.get('max_accuracy_disparity', 0.0) * 100:.2f}%")
+        for sname, smetrics in fair.get("demographic_subgroups", {}).items():
+            print(f"    - Subgroup [{sname}]: {smetrics.get('sample_count', 0)} pairs | Acc: {smetrics.get('accuracy', 0)*100:.1f}% | FAR: {smetrics.get('far', 0)*100:.1f}% | FRR: {smetrics.get('frr', 0)*100:.1f}%")
+
     reports_dir = get_reports_dir()
     csv_path = os.path.join(reports_dir, "m2_pairs_summary.csv")
     md_path = os.path.join(reports_dir, "m2_face_audit_report.md")

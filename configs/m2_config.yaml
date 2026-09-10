@@ -42,3 +42,18 @@ dataset:
   test_faces_dir: "data/test_faces"
   dev_pairs: 20
   full_pairs: 100
+
+quality:
+  min_recommended_iod: 40.0
+  min_acceptable_iod: 28.0
+  sharpness_blur_threshold: 50.0
+  sharpness_crisp_threshold: 150.0
+  min_mean_luminance: 60.0
+  max_mean_luminance: 200.0
+  max_clipping_ratio: 0.12
+
+screener:
+  photo_swap_iou_threshold: 0.10
+  crop_margin_ratio: 0.15
+  standard_photo_bbox: [30, 80, 200, 260]
+

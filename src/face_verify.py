@@ -55,6 +55,20 @@ DEFAULT_THRESHOLDS = {
 }
 
 
+def get_m2_config() -> Dict[str, Any]:
+    """Load configuration from configs/m2_config.yaml if present."""
+    try:
+        import yaml
+        root = Path(__file__).parent.parent
+        cfg_path = root / "configs" / "m2_config.yaml"
+        if cfg_path.exists():
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                return yaml.safe_load(f) or {}
+    except Exception:
+        pass
+    return {}
+
+
 # ---------------------------------------------------------------------------
 # Model Weight Management
 # ---------------------------------------------------------------------------
@@ -335,6 +349,7 @@ def _try_deepface_verify(
     model_name: str,
     distance_metric: str = "cosine",
     detector_backend: str = "opencv",
+    threshold: Optional[float] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Attempt face verification via DeepFace library if installed.
@@ -357,8 +372,8 @@ def _try_deepface_verify(
         )
 
         dist = float(res.get("distance", 1.0))
-        thresh = float(res.get("threshold", 0.68))
-        verified = bool(res.get("verified", dist <= thresh))
+        thresh = float(threshold) if threshold is not None else float(res.get("threshold", 0.68))
+        verified = bool(dist <= thresh)
 
         beta = DEFAULT_THRESHOLDS.get(model_name, {}).get("beta", 8.0)
         sim_pct = calculate_similarity_pct(dist, thresh, beta=beta)
@@ -406,6 +421,7 @@ def verify(
     distance_metric: str = "cosine",
     enforce_detection: bool = True,
     align: bool = True,
+    threshold: Optional[float] = None,
 ) -> Dict[str, Any]:
     """
     Canonical Milestone 2 Face Verification function.
@@ -505,8 +521,15 @@ def verify(
     dist = calculate_distance(emb_doc, emb_live, metric=distance_metric)
 
     # Lookup calibrated threshold
+    if threshold is None:
+        cfg = get_m2_config()
+        cfg_thresh = cfg.get("thresholds", {}).get(model_name, {}).get(distance_metric)
+        if cfg_thresh is not None:
+            threshold = float(cfg_thresh)
+        else:
+            thresh_info = DEFAULT_THRESHOLDS.get(model_name, DEFAULT_THRESHOLDS["SFace"])
+            threshold = thresh_info.get(distance_metric, 0.363 if model_name == "SFace" else 0.68)
     thresh_info = DEFAULT_THRESHOLDS.get(model_name, DEFAULT_THRESHOLDS["SFace"])
-    threshold = thresh_info.get(distance_metric, 0.363 if model_name == "SFace" else 0.68)
     beta = thresh_info.get("beta", 8.0)
 
     verified = dist <= threshold
