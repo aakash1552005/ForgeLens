@@ -1,0 +1,41 @@
+# ForgeLens-X — Milestone 5: Unified Forensic Report Configuration
+# ================================================================
+
+schema_version: "1.0"
+
+quality:
+  min_blur_score: 45.0          # Variance of Laplacian threshold (below = blurry)
+  medium_blur_score: 80.0       # Threshold between MEDIUM and HIGH sharpness
+  min_width: 600                # Minimum required horizontal resolution
+  min_height: 400               # Minimum required vertical resolution
+  min_ocr_confidence: 0.40      # Minimum average character confidence
+  high_ocr_confidence: 0.75     # High confidence threshold for OCR
+  enable_quality_gating: true   # Route low quality scans to INSUFFICIENT_EVIDENCE
+
+spatial_correlation:
+  min_iofa_overlap: 0.22        # Minimum Intersection-over-Field-Area to associate tamper with field
+  min_iou_overlap: 0.08         # Minimum standard IoU overlap
+  photo_region_bbox: [30, 80, 200, 260]  # Standard Forgelensia portrait coordinate anchor
+
+attack_heuristics:
+  ela_anomaly_energy_threshold: 75.0
+  copy_move_min_matches: 15
+  face_mismatch_distance_threshold: 0.40
+  font_zscore_threshold: 2.50
+  confidence_weights:
+    physical_tamper_weight: 0.45
+    semantic_failure_weight: 0.35
+    biometric_mismatch_weight: 0.40
+    typography_anomaly_weight: 0.30
+    provenance_tamper_weight: 0.25
+
+decision_tiers:
+  CLEAR_AUTHENTIC: "Document demonstrates consistent physical, optical, and semantic authenticity with high scan fidelity."
+  SUSPECT_TAMPERING: "Physical, typographic, biometric, or semantic evidence indicates localized credential manipulation."
+  INSUFFICIENT_EVIDENCE: "Document scan exhibits insufficient optical quality, blur, or unreadable fields to support conclusive forensic analysis."
+  REVIEW_RECOMMENDED: "Discrepancy detected under borderline or ambiguous conditions requiring human examiner secondary review."
+
+export:
+  indent: 2
+  include_feature_vector: true
+  save_visual_cards: true

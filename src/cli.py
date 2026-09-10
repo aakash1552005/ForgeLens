@@ -1187,7 +1187,92 @@ def cmd_semantic_eval(args):
     print(f"  Boundary Rule Accuracy      : {metrics['boundary_rule_accuracy']*100:.2f}%")
     print(f"  Summary CSV                 : {res['csv_path']}")
     print(f"  Forensic Audit Report       : {res['report_path']}")
-    print(f"  Results JSON                : {res['json_path']}")
+def cmd_unified_screen(args):
+    """
+    Run end-to-end multi-modal forensic screening across M1-M4 producing a unified M5 report.
+    Usage: py -m src.cli unified-screen <image_path> [--face <ref_face>] [--doc-type <type>] [--output <card.png>] [--json <report.json>]
+    """
+    import cv2
+    from src.forensic_report import generate_unified_forensic_report, export_unified_report
+    from src.unified_visualize import render_unified_forensic_card
+
+    image_path = args.image
+    if not os.path.exists(image_path):
+        print(f"[ERROR] Document image not found: {image_path}")
+        sys.exit(1)
+
+    print("=" * 65)
+    print("ForgeLens-X — Milestone 5: Unified Forensic Screening")
+    print("=" * 65)
+    print(f"Input Document:   {image_path}")
+    if getattr(args, "face", None):
+        print(f"Reference Face:   {args.face}")
+    print(f"Credential Type:  {args.doc_type}")
+    print("-" * 65)
+
+    report = generate_unified_forensic_report(
+        image_path,
+        reference_face_path=getattr(args, "face", None),
+        doc_type=args.doc_type,
+    )
+
+    card_path = None
+    if getattr(args, "output", None) or getattr(args, "card", True):
+        doc_bgr = cv2.imread(image_path)
+        _, card_path = render_unified_forensic_card(doc_bgr, report, output_path=getattr(args, "output", None))
+
+    json_path = getattr(args, "json", None)
+    if json_path:
+        export_unified_report(report, json_path=json_path)
+
+    # Print executive terminal summary
+    print(f"Quality Reliability : {report['quality']['analysis_reliability']} (Sharpness: {report['quality']['blur_score']:.1f})")
+    print(f"Decision Tier       : {report['decision']}")
+    print(f"Attack Hypothesis   : {report['attack_type_guess'].upper()} (Confidence: {report['attack_type_confidence']*100:.1f}%)")
+    print(f"Suspicious Regions  : {len(report['suspicious_regions'])} detected")
+    print("\nEvidentiary Basis:")
+    for b in report["attack_type_basis"][:5]:
+        print(f"  * {b}")
+
+    if card_path:
+        print(f"\n[+] Master Diagnostic Card saved: {card_path}")
+    if json_path:
+        print(f"[+] Unified JSON Report saved:    {json_path}")
+    print("=" * 65)
+    return report
+
+
+def cmd_unified_eval(args):
+    """
+    Run full M5 evaluation benchmark across genuine, tampered, and degraded documents.
+    Usage: py -m src.cli unified-eval [--samples 15] [--cards 4]
+    """
+    from src.unified_evaluate import run_unified_m5_benchmark
+
+    print("=" * 65)
+    print("ForgeLens-X — Milestone 5 Unified Forensic Benchmark")
+    print("=" * 65)
+    print(f"Samples per category: {args.samples}")
+    print(f"Diagnostic cards:     {args.cards}")
+    print("-" * 65)
+
+    res = run_unified_m5_benchmark(
+        samples_per_category=args.samples,
+        num_cards=args.cards,
+    )
+
+    metrics = res["metrics"]
+    print("\n" + "=" * 65)
+    print("Milestone 5 Benchmark Summary Results")
+    print("=" * 65)
+    print(f"  Total Documents Audited     : {metrics['total_documents_audited']}")
+    print(f"  False Rejection Rate (FRR)  : {metrics['false_rejection_rate_frr']*100:.2f}% (Target <= 5%)")
+    print(f"  Tamper Detection Rate (TPR) : {metrics['tamper_detection_rate_tpr']*100:.2f}%")
+    print(f"  Attack Classification Acc   : {metrics['attack_classification_accuracy']*100:.2f}%")
+    print(f"  Quality Gating Success Rate : {metrics['quality_gating_success_rate']*100:.2f}%")
+    print(f"  Summary Tabular CSV         : {res['csv_path']}")
+    print(f"  Forensic Audit Report       : {res['report_path']}")
+    print(f"  JSON Results Contract       : {res['json_path']}")
     print("=" * 65)
 
 
@@ -1290,6 +1375,21 @@ def main():
     se_parser.add_argument("--samples", type=int, default=15, help="Number of document samples to evaluate per category")
     se_parser.add_argument("--cards", type=int, default=4, help="Number of visual diagnostic explanation cards to generate")
 
+    # --- Milestone 5: Unified Forensic Report Subcommands ---
+
+    # unified-screen
+    us_parser = subparsers.add_parser("unified-screen", help="Run full multi-modal forensic screening (M1-M4) producing unified M5 report")
+    us_parser.add_argument("image", type=str, help="Path to identity document image")
+    us_parser.add_argument("--face", type=str, default=None, help="Optional path to reference live face selfie photo")
+    us_parser.add_argument("--doc-type", type=str, default="forgelensia", choices=["forgelensia", "passport", "generic_id"], help="Document credential schema")
+    us_parser.add_argument("--output", type=str, default=None, help="Output path for master 4-panel diagnostic card")
+    us_parser.add_argument("--json", type=str, default=None, help="Output path to export unified JSON report contract")
+
+    # unified-eval
+    ue_parser = subparsers.add_parser("unified-eval", help="Evaluate unified report accuracy, quality gating, and attack classification")
+    ue_parser.add_argument("--samples", type=int, default=15, help="Number of document samples to evaluate per attack category")
+    ue_parser.add_argument("--cards", type=int, default=4, help="Number of master diagnostic cards to generate")
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -1311,6 +1411,8 @@ def main():
         "ocr-eval": cmd_ocr_eval,
         "semantic-check": cmd_semantic_check,
         "semantic-eval": cmd_semantic_eval,
+        "unified-screen": cmd_unified_screen,
+        "unified-eval": cmd_unified_eval,
     }
 
     commands[args.command](args)
