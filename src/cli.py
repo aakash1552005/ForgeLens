@@ -1388,6 +1388,7 @@ def main():
 
     # unified-eval
     ue_parser = subparsers.add_parser("unified-eval", help="Evaluate unified report accuracy, quality gating, and attack classification")
+    ue_parser.add_argument("--dataset", type=str, default="all", choices=["synthetic", "degraded", "all"], help="Benchmark dataset scope")
     ue_parser.add_argument("--samples", type=int, default=15, help="Number of document samples to evaluate per attack category")
     ue_parser.add_argument("--cards", type=int, default=4, help="Number of master diagnostic cards to generate")
 
