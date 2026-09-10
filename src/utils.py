@@ -101,10 +101,15 @@ def bbox_from_mask(mask: np.ndarray) -> list | None:
 # File I/O
 # ---------------------------------------------------------------------------
 
-def ensure_dirs(*paths: str) -> None:
-    """Create directories if they don't exist."""
+def ensure_dirs(*paths: Any) -> None:
+    """Create directories if they don't exist, supporting both unpacked args and lists."""
     for p in paths:
-        os.makedirs(p, exist_ok=True)
+        if isinstance(p, (list, tuple)):
+            for sub_p in p:
+                if sub_p:
+                    os.makedirs(str(sub_p), exist_ok=True)
+        elif p:
+            os.makedirs(str(p), exist_ok=True)
 
 
 def save_metadata(metadata: dict, path: str) -> None:

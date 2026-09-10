@@ -187,3 +187,134 @@ def correlate_tamper_with_fields(
         "integrity_verdict": verdict,
         "summary": summary,
     }
+
+
+def fuse_forensic_modalities(
+    spatial_bridge: Optional[Dict[str, Any]] = None,
+    semantic_audit: Optional[Dict[str, Any]] = None,
+    font_audit: Optional[Dict[str, Any]] = None,
+    metadata_audit: Optional[Dict[str, Any]] = None,
+    mrz_audit: Optional[Dict[str, Any]] = None,
+    mrz_viz_cross: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Cross-Milestone Forensic Fusion Bridge (Milestone 1 x Milestone 3 x Milestone 4).
+    Correlates physical pixel tamper signals, logical semantic rules, typography metrics,
+    EXIF provenance, and ICAO MRZ checksums into a unified, explainable threat verdict.
+    """
+    red_flags: List[str] = []
+    elevated_correlations: List[Dict[str, Any]] = []
+
+    # 1. Spatial Field Tampering
+    spatially_tampered_fields = set()
+    if spatial_bridge:
+        spatially_tampered_fields = set(spatial_bridge.get("tampered_field_names", []))
+        if spatially_tampered_fields:
+            red_flags.append(f"Spatial physical tampering detected in fields: {list(spatially_tampered_fields)}")
+
+    # 2. Semantic Rule Failures
+    semantic_failed_checks = []
+    if semantic_audit:
+        semantic_failed_checks = semantic_audit.get("failed_checks", [])
+        if semantic_failed_checks:
+            red_flags.append(f"Semantic rule failures detected: {semantic_failed_checks}")
+
+    # 3. Typography Font Anomalies
+    font_anomalous_fields = set()
+    if font_audit:
+        for a in font_audit.get("anomalous_fields", []):
+            fname = a.get("field")
+            if fname:
+                font_anomalous_fields.add(fname)
+        if font_anomalous_fields:
+            red_flags.append(f"Typographic font inconsistencies (Z > 2.5) in fields: {list(font_anomalous_fields)}")
+
+    # 4. Metadata Provenance
+    metadata_tampered = False
+    if metadata_audit:
+        if metadata_audit.get("is_tampered"):
+            metadata_tampered = True
+            red_flags.append(f"Metadata provenance alert: {metadata_audit.get('provenance_verdict')} ({metadata_audit.get('software_detected')})")
+
+    # 5. MRZ Checksum and Cross-Validation
+    mrz_tampered = False
+    if mrz_audit:
+        if mrz_audit.get("status") == "FAIL":
+            mrz_tampered = True
+            red_flags.append(f"MRZ checksum forgery detected: {mrz_audit.get('unrepaired_failures')}")
+    if mrz_viz_cross:
+        if not mrz_viz_cross.get("is_concordant") and mrz_viz_cross.get("comparable_fields", 0) > 0:
+            mrz_tampered = True
+            red_flags.append(f"VIZ-to-MRZ contradiction detected: {mrz_viz_cross.get('mismatches')}")
+
+    # Cross-Modality Convergence Analysis
+    # Check if a field is flagged across multiple independent modalities
+    all_suspicious_fields = spatially_tampered_fields.union(font_anomalous_fields)
+    for fname in all_suspicious_fields:
+        modalities = []
+        if fname in spatially_tampered_fields:
+            modalities.append("Spatial ELA/Copy-Move")
+        if fname in font_anomalous_fields:
+            modalities.append("Stroke Width Typography")
+        # Check if semantic failure relates to this field
+        if semantic_failed_checks:
+            for s_chk in semantic_failed_checks:
+                if fname in s_chk or (fname in ["dob", "issue_date", "expiry_date"] and ("chronology" in s_chk or "date" in s_chk or "age" in s_chk)):
+                    modalities.append(f"Semantic Rule ({s_chk})")
+
+        if len(modalities) >= 2:
+            elevated_correlations.append({
+                "field": fname,
+                "converging_modalities": modalities,
+                "detail": f"Field '{fname}' exhibits simultaneous independent anomalies across {len(modalities)} forensic modalities: {modalities}",
+            })
+
+    # Composite Threat Verdict Determination
+    if elevated_correlations:
+        threat_level = "CRITICAL_CONFIRMED_FRAUD"
+        is_authentic = False
+        verdict_summary = (
+            f"CRITICAL FRAUD CONFIRMED: Multi-modality convergence detected on {len(elevated_correlations)} field(s). "
+            f"Physical tampering, typography anomalies, and/or semantic contradictions coincide directly."
+        )
+    elif mrz_tampered:
+        threat_level = "CRITICAL_MRZ_TAMPERING"
+        is_authentic = False
+        verdict_summary = "CRITICAL FRAUD: Machine Readable Zone checksum failure or VIZ contradiction cannot be reconciled."
+    elif spatially_tampered_fields:
+        threat_level = "HIGH_SPATIAL_TAMPERING"
+        is_authentic = False
+        verdict_summary = f"HIGH ALERT: Spatial compression or clone tampering identified across fields: {list(spatially_tampered_fields)}."
+    elif semantic_failed_checks:
+        threat_level = "SUSPECT_LOGICAL_CONTRADICTION"
+        is_authentic = False
+        verdict_summary = f"SUSPECT: Logical semantic rules violated ({len(semantic_failed_checks)} failures), suggesting fabricated or modified data."
+    elif font_anomalous_fields:
+        threat_level = "SUSPECT_FONT_INCONSISTENCY"
+        is_authentic = False
+        verdict_summary = f"SUSPECT: Typographic font outlier detected in fields {list(font_anomalous_fields)} (different stroke weight / font insertion)."
+    elif metadata_tampered:
+        threat_level = "SUSPECT_METADATA_PROVENANCE"
+        is_authentic = False
+        verdict_summary = "SUSPECT: Image headers disclose photo-manipulation software signatures or timestamp inversions."
+    else:
+        threat_level = "AUTHENTIC_MULTI_MODAL_CLEARANCE"
+        is_authentic = True
+        verdict_summary = "AUTHENTIC: Clean clearance across all physical, logical, typographic, metadata, and MRZ forensic modalities."
+
+    return {
+        "threat_level": threat_level,
+        "is_authentic": is_authentic,
+        "red_flag_count": len(red_flags),
+        "red_flags": red_flags,
+        "elevated_correlations": elevated_correlations,
+        "verdict_summary": verdict_summary,
+        "modality_breakdown": {
+            "spatial_tamper_count": len(spatially_tampered_fields),
+            "semantic_failures_count": len(semantic_failed_checks),
+            "font_anomalies_count": len(font_anomalous_fields),
+            "metadata_tampered": metadata_tampered,
+            "mrz_tampered": mrz_tampered,
+        },
+    }
+

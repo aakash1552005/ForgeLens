@@ -1049,6 +1049,148 @@ def cmd_ocr_eval(args):
     print("=" * 60)
 
 
+def cmd_semantic_check(args):
+    """Run full Milestone 4 semantic, MRZ, typography & EXIF forensic screening on an image."""
+    import cv2
+    from src.font_forensics import audit_document_font_consistency
+    from src.metadata_forensics import audit_metadata_provenance, extract_image_metadata
+    from src.mrz import cross_validate_viz_and_mrz, disambiguate_mrz_checksums, parse_mrz
+    from src.ocr import extract_structured_fields
+    from src.ocr_forensic_bridge import correlate_tamper_with_fields, fuse_forensic_modalities
+    from src.semantic_checks import run_semantic_rule_battery
+    from src.semantic_visualize import generate_semantic_diagnostic_card
+    from src.utils import get_reports_dir
+
+    image_path = args.image
+    if not os.path.exists(image_path):
+        print(f"[ERROR] Image not found: {image_path}")
+        sys.exit(1)
+
+    doc_bgr = cv2.imread(image_path)
+    if doc_bgr is None:
+        print(f"[ERROR] Failed to decode image: {image_path}")
+        sys.exit(1)
+
+    print("=" * 65)
+    print("ForgeLens-X — M4 Semantic, MRZ & Typographic Forensic Audit")
+    print("=" * 65)
+    print(f"Target Document: {image_path}")
+    print(f"Document Schema: {args.doc_type}")
+    print("-" * 65)
+
+    # 1. OCR Extractions & MRZ
+    ocr_res = extract_structured_fields(doc_bgr)
+    fields = ocr_res.get("fields", {})
+
+    raw_lines = [b.get("text", "") for b in ocr_res.get("ocr_boxes", [])]
+    mrz_data = parse_mrz(raw_lines)
+    if mrz_data:
+        mrz_data = disambiguate_mrz_checksums(mrz_data, viz_fields=fields)
+        viz_cross = cross_validate_viz_and_mrz(fields, mrz_data)
+    else:
+        viz_cross = None
+
+    # 2. Canonical 8-Rule Semantic Audit
+    sem_audit = run_semantic_rule_battery(fields, doc_type=args.doc_type)
+
+    # 3. Typography Forensics (SWT)
+    font_audit = audit_document_font_consistency(doc_bgr, fields)
+
+    # 4. EXIF Provenance
+    meta_raw = extract_image_metadata(image_path)
+    meta_audit = audit_metadata_provenance(meta_raw)
+
+    # 5. Spatial & Multi-Modal Fusion
+    spatial_bridge = correlate_tamper_with_fields(fields)
+    fusion = fuse_forensic_modalities(
+        spatial_bridge=spatial_bridge,
+        semantic_audit=sem_audit,
+        font_audit=font_audit,
+        metadata_audit=meta_audit,
+        mrz_audit=mrz_data,
+        mrz_viz_cross=viz_cross,
+    )
+
+    # Print Terminal Table
+    print("\n--- Canonical 8-Rule Semantic Matrix ---")
+    rule_names = [
+        ("impossible_dates", "1. Calendar Sanity"),
+        ("chronology_order", "2. Chronology Sequence"),
+        ("age_at_issue_sanity", "3. Age-at-Issue Sanity"),
+        ("validity_window_sanity", "4. Validity Window"),
+        ("anachronism_check", "5. Future Anachronism"),
+        ("document_number_format", "6. Doc Number Regex"),
+        ("duplicate_field_contradiction", "7. Duplicate Contradiction"),
+        ("name_structure_sanity", "8. Name Alpha Sanity"),
+    ]
+    for r_key, r_label in rule_names:
+        chk = sem_audit["checks"].get(r_key, {})
+        status = chk.get("status", "UNKNOWN")
+        detail = chk.get("detail", "")
+        status_badge = f"[{status}]"
+        print(f"  {r_label:<26} {status_badge:<16} : {detail[:55]}")
+
+    print("\n--- Multi-Modal Forensic Modalities ---")
+    print(f"  Typography (SWT)       : [{font_audit['typography_verdict']}] (Max Z: {font_audit['max_stroke_zscore']:.2f})")
+    print(f"  EXIF Provenance        : [{meta_audit['provenance_verdict']}] ({meta_audit.get('software_detected') or 'Clean'})")
+    if mrz_data:
+        print(f"  ICAO Doc 9303 MRZ      : [{mrz_data['verdict']}] (Format: {mrz_data['format']})")
+    else:
+        print(f"  ICAO Doc 9303 MRZ      : [NOT_APPLICABLE] (National ID / No MRZ)")
+
+    print("\n" + "=" * 65)
+    print(f"COMPOSITE THREAT LEVEL   : {fusion['threat_level']}")
+    print(f"AUTHENTICITY STATUS      : {'CLEARED (AUTHENTIC)' if fusion['is_authentic'] else 'REJECTED (FRAUD/TAMPERED)'}")
+    print(f"Summary                  : {fusion['verdict_summary']}")
+    print("=" * 65)
+
+    # Render Visual Card
+    card_path = args.output
+    if not card_path:
+        stem = os.path.splitext(os.path.basename(image_path))[0]
+        card_path = os.path.join(get_reports_dir(), "visuals", f"semantic_card_{stem}.png")
+
+    _, out_path = generate_semantic_diagnostic_card(
+        doc_bgr, fields, sem_audit, meta_audit, font_audit,
+        mrz_data=mrz_data, mrz_viz_cross=viz_cross,
+        spatial_bridge=spatial_bridge,
+        doc_id=os.path.basename(image_path),
+        output_path=card_path,
+    )
+    print(f"\n[+] Visual Diagnostic Card Generated: {out_path}")
+
+
+def cmd_semantic_eval(args):
+    """Run full Milestone 4 semantic benchmark across genuine, tampered, boundary, and MRZ sets."""
+    from src.semantic_evaluate import run_full_m4_benchmark
+
+    print("=" * 65)
+    print("ForgeLens-X — Milestone 4 Comprehensive Forensic Benchmark")
+    print("=" * 65)
+    print(f"Dataset Scope: {args.dataset}")
+    print(f"Sample Limit:  {args.samples}")
+    print(f"Cards Count:   {args.cards}")
+    print("-" * 65)
+
+    res = run_full_m4_benchmark(
+        samples_per_category=args.samples,
+        num_cards=args.cards,
+    )
+
+    metrics = res["metrics"]
+    print("\n" + "=" * 65)
+    print("Milestone 4 Benchmark Summary Results")
+    print("=" * 65)
+    print(f"  Total Credentials Audited   : {metrics['total_documents_audited']}")
+    print(f"  False Rejection Rate (FRR)  : {metrics['false_rejection_rate_frr']*100:.2f}% (Target <= 5%)")
+    print(f"  Tamper Detection Rate (TPR) : {metrics['true_positive_rate_tpr']*100:.2f}%")
+    print(f"  Boundary Rule Accuracy      : {metrics['boundary_rule_accuracy']*100:.2f}%")
+    print(f"  Summary CSV                 : {res['csv_path']}")
+    print(f"  Forensic Audit Report       : {res['report_path']}")
+    print(f"  Results JSON                : {res['json_path']}")
+    print("=" * 65)
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="forgelens-m1",
@@ -1134,7 +1276,19 @@ def main():
     oe_parser.add_argument("--engine", type=str, default="rapidocr", choices=["rapidocr", "tesseract"], help="OCR engine")
     oe_parser.add_argument("--cards", type=int, default=4, help="Number of visual diagnostic explanation cards to generate")
     oe_parser.add_argument("--stress-test", action="store_true", help="Run multi-condition optical stress testing (blur, glare, underexposure, downsampling)")
-    oe_parser.add_argument("--seed", type=int, default=42, help="Random seed")
+    # --- Milestone 4: Semantic, MRZ & Typography Subcommands ---
+
+    # semantic-check
+    sc_parser = subparsers.add_parser("semantic-check", help="Run full semantic, MRZ, typography & EXIF forensic audit on a document")
+    sc_parser.add_argument("image", type=str, help="Path to identity document image")
+    sc_parser.add_argument("--doc-type", type=str, default="forgelensia", choices=["forgelensia", "passport", "generic_id"], help="Document credential schema")
+    sc_parser.add_argument("--output", type=str, default=None, help="Output path for visual diagnostic explanation card")
+
+    # semantic-eval
+    se_parser = subparsers.add_parser("semantic-eval", help="Evaluate semantic rules, MRZ repair, and typography consistency on benchmark dataset")
+    se_parser.add_argument("--dataset", type=str, default="all", choices=["synthetic", "boundary", "all"], help="Benchmark dataset scope")
+    se_parser.add_argument("--samples", type=int, default=15, help="Number of document samples to evaluate per category")
+    se_parser.add_argument("--cards", type=int, default=4, help="Number of visual diagnostic explanation cards to generate")
 
     args = parser.parse_args()
 
@@ -1155,6 +1309,8 @@ def main():
         "screen-identity": cmd_screen_identity,
         "ocr": cmd_ocr,
         "ocr-eval": cmd_ocr_eval,
+        "semantic-check": cmd_semantic_check,
+        "semantic-eval": cmd_semantic_eval,
     }
 
     commands[args.command](args)

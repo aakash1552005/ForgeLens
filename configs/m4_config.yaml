@@ -1,0 +1,77 @@
+# ForgeLens-X — Milestone 4: Semantic, MRZ, EXIF & Typography Configuration
+# =========================================================================
+
+semantic_rules:
+  min_age_at_issue_years: 0.0
+  adult_age_threshold_years: 18.0
+  max_validity_years: 25.0
+  future_date_tolerance_days: 30
+  schemas:
+    forgelensia:
+      document_number_regex: '^FGL-\d{6}-\d{2}$'
+      allowed_date_delimiters: ["/", "-", "."]
+    passport:
+      document_number_regex: '^[A-Z0-9<]{8,9}$'
+      allowed_date_delimiters: ["/", "-", "."]
+    generic_id:
+      document_number_regex: '^[A-Z0-9\-_]{5,20}$'
+      allowed_date_delimiters: ["/", "-", "."]
+  placeholder_name_tokens:
+    - "TEST"
+    - "SAMPLE"
+    - "DEMO"
+    - "DUMMY"
+    - "UNKNOWN"
+    - "NOT APPLICABLE"
+    - "PLACEHOLDER"
+    - "JOHN DOE"
+    - "JANE DOE"
+
+mrz:
+  supported_formats: ["TD1", "TD2", "TD3"]
+  check_digit_weights: [7, 3, 1]
+  enable_hypothesis_repair: true
+  max_hypothesis_flips: 1
+  confusable_pairs:
+    - ["O", "0"]
+    - ["o", "0"]
+    - ["Q", "0"]
+    - ["D", "0"]
+    - ["I", "1"]
+    - ["l", "1"]
+    - ["|", "1"]
+    - ["!", "1"]
+    - ["S", "5"]
+    - ["s", "5"]
+    - ["B", "8"]
+    - ["Z", "2"]
+    - ["z", "2"]
+
+metadata_forensics:
+  software_blacklist:
+    - "photoshop"
+    - "gimp"
+    - "canva"
+    - "lightroom"
+    - "paint.net"
+    - "coreldraw"
+    - "snapseed"
+    - "pixelmator"
+    - "affinity photo"
+    - "pixlr"
+    - "fotor"
+    - "vsco"
+  max_timestamp_skew_seconds: 86400  # 24 hours threshold between original and digitized
+  require_exif_markers: false         # Non-punitive for web/scanned documents
+
+font_forensics:
+  min_crop_area: 200
+  stroke_distance_type: "L2"
+  stroke_mask_size: 5
+  max_stroke_zscore: 2.5
+  max_aspect_ratio_zscore: 3.5
+  outlier_p_value_threshold: 0.05
+
+cross_milestone_bridge:
+  min_tamper_overlap_area: 25.0
+  severity_elevation_on_overlap: true
