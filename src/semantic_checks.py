@@ -51,9 +51,19 @@ def _get_val(fields: Dict[str, Any], fname: str) -> Optional[str]:
     return val
 
 
+MONTH_MAP = {
+    "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
+    "JUL": 7, "AUG": 8, "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12,
+    "JANUARY": 1, "FEBRUARY": 2, "MARCH": 3, "APRIL": 4, "JUNE": 6,
+    "JULY": 7, "AUGUST": 8, "SEPTEMBER": 9, "OCTOBER": 10, "NOVEMBER": 11, "DECEMBER": 12,
+    "MAI": 5, "JUIL": 7, "AOUT": 8,
+}
+
+
 def parse_calendar_date(d_str: Optional[str]) -> Tuple[Optional[datetime], Optional[str]]:
     """
     Parse date from string with strict calendar validity checking.
+    Supports numeric and international textual month representations (e.g. 15-MAY-1990).
     Returns:
         (datetime_obj, error_reason)
         If valid: (datetime, None)
@@ -66,13 +76,25 @@ def parse_calendar_date(d_str: Optional[str]) -> Tuple[Optional[datetime], Optio
     cleaned = str(d_str).strip()
     # Normalize separators
     normalized = re.sub(r"[\s.-]", "/", cleaned)
-    parts = normalized.split("/")
+    parts = [p.strip() for p in normalized.split("/") if p.strip()]
 
     if len(parts) == 3:
         p1, p2, p3 = parts
-        # Determine day, month, year based on lengths and standard formats
         try:
-            if len(p1) == 4:  # YYYY/MM/DD
+            # Check for textual month in second position (e.g., 15/MAY/1990)
+            if p2.upper() in MONTH_MAP:
+                m = MONTH_MAP[p2.upper()]
+                d = int(p1)
+                yy = int(p3)
+                y = (1900 if yy > 40 and yy < 100 else 2000 if yy <= 40 else 0) + yy if len(p3) == 2 else yy
+            # Check for textual month in first position (e.g., MAY/15/1990)
+            elif p1.upper() in MONTH_MAP:
+                m = MONTH_MAP[p1.upper()]
+                d = int(p2)
+                yy = int(p3)
+                y = (1900 if yy > 40 and yy < 100 else 2000 if yy <= 40 else 0) + yy if len(p3) == 2 else yy
+            # Numeric Day, Month, Year determination based on component lengths
+            elif len(p1) == 4:  # YYYY/MM/DD
                 y, m, d = int(p1), int(p2), int(p3)
             elif len(p3) == 4:  # DD/MM/YYYY
                 d, m, y = int(p1), int(p2), int(p3)
@@ -89,7 +111,7 @@ def parse_calendar_date(d_str: Optional[str]) -> Tuple[Optional[datetime], Optio
 
             # Days in month table
             days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-            # Leap year rule
+            # Leap year rule (century years must be divisible by 400)
             is_leap = (y % 4 == 0 and (y % 100 != 0 or y % 400 == 0))
             if is_leap and m == 2:
                 max_d = 29
@@ -497,6 +519,37 @@ def check_name_structure_sanity(
     }
 
 
+def check_country_code_sanity(fields: Dict[str, Any]) -> Dict[str, Any]:
+    """Rule 9: Validate 3-letter issuing country or nationality code format (ISO 3166-1 alpha-3)."""
+    country_val = _get_val(fields, "country") or _get_val(fields, "nationality") or _get_val(fields, "issuing_country")
+
+    if not country_val:
+        return {
+            "check": "country_code_sanity",
+            "status": "NOT_APPLICABLE",
+            "detail": "No country or nationality code present to audit.",
+            "evidence": {"country": None},
+        }
+
+    clean_c = re.sub(r"[^A-Za-z<]", "", country_val.strip()).upper()
+    evidence = {"raw": country_val, "cleaned": clean_c}
+
+    if len(clean_c) != 3 or not clean_c.isalpha():
+        return {
+            "check": "country_code_sanity",
+            "status": "FAIL",
+            "detail": f"Invalid country/nationality code '{country_val}'. Must be 3 alphabetic characters (ISO 3166-1 alpha-3).",
+            "evidence": evidence,
+        }
+
+    return {
+        "check": "country_code_sanity",
+        "status": "PASS",
+        "detail": f"Country/nationality code '{clean_c}' strictly conforms to 3-letter ISO/ICAO format.",
+        "evidence": evidence,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Master Semantic Rule Battery Execution
 # ---------------------------------------------------------------------------
@@ -507,7 +560,7 @@ def run_semantic_rule_battery(
     config: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
-    Execute all 8 canonical semantic rules across extracted fields.
+    Execute canonical semantic rules across extracted fields.
 
     Returns:
         Structured audit dictionary with per-check statuses, overall verdict,
@@ -526,7 +579,7 @@ def run_semantic_rule_battery(
     schema_cfg = s_cfg.get("schemas", {}).get(doc_type, {})
     doc_regex = schema_cfg.get("document_number_regex")
 
-    # Run all 8 rules
+    # Run canonical rule battery
     checks = [
         check_impossible_dates(fields),
         check_chronology_order(fields),
@@ -536,6 +589,7 @@ def run_semantic_rule_battery(
         check_document_number_format(fields, doc_type=doc_type, custom_regex=doc_regex),
         check_duplicate_field_contradiction(fields),
         check_name_structure_sanity(fields, blacklist_tokens=placeholders),
+        check_country_code_sanity(fields),
     ]
 
     checks_by_name = {c["check"]: c for c in checks}

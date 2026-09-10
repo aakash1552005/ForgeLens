@@ -85,9 +85,10 @@ def _render_document_canvas_panel(
     fields: Dict[str, Any],
     semantic_audit: Dict[str, Any],
     font_audit: Optional[Dict[str, Any]] = None,
+    spatial_bridge: Optional[Dict[str, Any]] = None,
     target_size: Tuple[int, int] = (PANEL_WIDTH, PANEL_HEIGHT),
 ) -> np.ndarray:
-    """Render document canvas with spatial overlays and tamper highlighting."""
+    """Render document canvas with spatial overlays and multi-modal tamper highlighting."""
     p_w, p_h = target_size
     panel = np.full((p_h, p_w, 3), PANEL_BG, dtype=np.uint8)
 
@@ -115,12 +116,16 @@ def _render_document_canvas_panel(
     # Draw scaled document
     panel[off_y:off_y + new_h, off_x:off_x + new_w] = resized_doc
 
-    # Identify suspect fields from font audit or semantic audit
+    # Identify suspect fields from font audit or spatial bridge
     font_anomalous_fields = set()
     if font_audit:
         for a in font_audit.get("anomalous_fields", []):
             if a.get("field"):
                 font_anomalous_fields.add(a["field"])
+
+    spatially_tampered_fields = set()
+    if spatial_bridge:
+        spatially_tampered_fields = set(spatial_bridge.get("tampered_field_names", []))
 
     # Highlight fields
     for fname, fdata in fields.items():
@@ -134,12 +139,27 @@ def _render_document_canvas_panel(
             sx2 = int(off_x + x2 * scale)
             sy2 = int(off_y + y2 * scale)
 
-            is_anomalous = (fname in font_anomalous_fields)
-            color = (68, 68, 239) if is_anomalous else (248, 189, 56)  # Red BGR vs Cyan BGR
-            thickness = 2 if is_anomalous else 1
+            has_spatial = fname in spatially_tampered_fields
+            has_font = fname in font_anomalous_fields
+
+            if has_spatial and has_font:
+                color = (0, 0, 255)  # Crimson Red
+                thickness = 2
+                tag = f"{fname} [! CRITICAL FRAUD]"
+            elif has_spatial:
+                color = (68, 68, 239)  # Red BGR
+                thickness = 2
+                tag = f"{fname} [! ELA/CLONE]"
+            elif has_font:
+                color = (11, 158, 245)  # Amber BGR
+                thickness = 2
+                tag = f"{fname} [! FONT SPLICED]"
+            else:
+                color = (248, 189, 56)  # Cyan BGR
+                thickness = 1
+                tag = fname
 
             cv2.rectangle(panel, (sx1, sy1), (sx2, sy2), color, thickness)
-            tag = f"{fname} [!]" if is_anomalous else fname
             cv2.putText(panel, tag, (sx1, max(12, sy1 - 4)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.35, color, 1, cv2.LINE_AA)
 
@@ -442,7 +462,7 @@ def generate_semantic_diagnostic_card(
         mrz_viz_cross=mrz_viz_cross,
     )
 
-    p1 = _render_document_canvas_panel(doc_bgr, fields, semantic_audit, font_audit)
+    p1 = _render_document_canvas_panel(doc_bgr, fields, semantic_audit, font_audit, spatial_bridge=spatial_bridge)
     p2 = _render_optical_crops_panel(fields, mrz_data, doc_bgr)
     p3 = _render_semantic_rules_panel(semantic_audit)
     p4 = _render_multi_modal_gauges_panel(fusion_res, metadata_audit, font_audit, mrz_data)

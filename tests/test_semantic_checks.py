@@ -12,6 +12,7 @@ from src.semantic_checks import (
     check_age_at_issue_sanity,
     check_anachronism,
     check_chronology_order,
+    check_country_code_sanity,
     check_document_number_format,
     check_duplicate_field_contradiction,
     check_impossible_dates,
@@ -35,6 +36,25 @@ def test_parse_calendar_date_valid():
     dt, err = parse_calendar_date("29/02/2024")  # 2024 is a leap year
     assert err is None
     assert dt == datetime(2024, 2, 29)
+
+
+def test_parse_calendar_date_textual_months():
+    """Verify parsing international textual months (English, French, etc.)."""
+    dt, err = parse_calendar_date("15-MAY-1990")
+    assert err is None
+    assert dt == datetime(1990, 5, 15)
+
+    dt, err = parse_calendar_date("14/JUL/1982")
+    assert err is None
+    assert dt == datetime(1982, 7, 14)
+
+    dt, err = parse_calendar_date("01 AOUT 2005")
+    assert err is None
+    assert dt == datetime(2005, 8, 1)
+
+    dt, err = parse_calendar_date("OCT/28/1995")
+    assert err is None
+    assert dt == datetime(1995, 10, 28)
 
 
 def test_parse_calendar_date_leap_and_impossible():
@@ -201,6 +221,29 @@ def test_rule8_name_structure_sanity():
     numeric_fields = {"name": "12345 6789"}
     res = check_name_structure_sanity(numeric_fields)
     assert res["status"] == "FAIL"
+
+
+def test_rule9_country_code_sanity():
+    """Test Rule 9 ISO 3166-1 alpha-3 code checking."""
+    valid_country = {"country": "ALB"}
+    res = check_country_code_sanity(valid_country)
+    assert res["status"] == "PASS"
+
+    valid_nat = {"nationality": "UTO"}
+    res2 = check_country_code_sanity(valid_nat)
+    assert res2["status"] == "PASS"
+
+    invalid_code = {"country": "US1"}
+    res3 = check_country_code_sanity(invalid_code)
+    assert res3["status"] == "FAIL"
+
+    too_long = {"country": "UNITED"}
+    res4 = check_country_code_sanity(too_long)
+    assert res4["status"] == "FAIL"
+
+    absent_code = {}
+    res5 = check_country_code_sanity(absent_code)
+    assert res5["status"] == "NOT_APPLICABLE"
 
 
 def test_master_semantic_battery_execution():

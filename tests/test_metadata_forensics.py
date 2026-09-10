@@ -94,3 +94,29 @@ def test_extract_metadata_real_file():
         assert meta["file_path"] == img_path
         assert meta["file_size_bytes"] > 0
         assert "image_size" in meta
+
+
+def test_xmp_packet_provenance_audit(tmp_path):
+    """Verify detection of Photoshop signatures embedded in raw XMP byte packets."""
+    # Create synthetic test file with embedded XMP packet
+    dummy_img = tmp_path / "xmp_tampered.jpg"
+    xmp_payload = (
+        b"\xff\xd8\xff\xe1\x00\x80Exif\x00\x00"
+        b"<x:xmpmeta xmlns:x='adobe:ns:meta/'>"
+        b"<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>"
+        b"<xmp:CreatorTool>Adobe Photoshop CC 2024</xmp:CreatorTool>"
+        b"<photoshop:History>tampered</photoshop:History>"
+        b"</rdf:RDF></x:xmpmeta>"
+        b"\xff\xd9"
+    )
+    dummy_img.write_bytes(xmp_payload)
+
+    meta = extract_image_metadata(str(dummy_img))
+    assert meta["has_xmp"] is True
+    assert meta["xmp_creator_tool"] == "Adobe Photoshop CC 2024"
+    assert meta["has_photoshop_history"] is True
+
+    audit = audit_metadata_provenance(meta)
+    assert audit["is_tampered"] is True
+    assert audit["provenance_verdict"] == "SUSPECT_SOFTWARE_FINGERPRINT"
+

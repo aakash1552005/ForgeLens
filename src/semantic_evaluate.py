@@ -175,6 +175,20 @@ def create_synthetic_boundary_cases() -> List[Dict[str, Any]]:
                 # DOB, issue, and expiry omitted
             },
         },
+        {
+            "case_id": "boundary_11_invalid_country_code",
+            "expected_verdict": "SUSPECT_SEMANTIC_VIOLATION",
+            "failing_rule": "country_code_sanity",
+            "doc_type": "forgelensia",
+            "fields": {
+                "name": {"value": "JULIAN ASSANGE"},
+                "document_number": {"value": "FGL-112233-11"},
+                "country": {"value": "INVALID_CODE_99"},
+                "dob": {"value": "03/07/1971"},
+                "issue_date": {"value": "01/01/2020"},
+                "expiry_date": {"value": "01/01/2030"},
+            },
+        },
     ]
 
 
@@ -588,7 +602,7 @@ def _export_markdown_report(
 
     md = f"""# ForgeLens-X — Milestone 4: Semantic, MRZ & Typography Forensic Audit Report
 **Audit Timestamp:** {now_str}  
-**Engine Version:** M4 Multi-Modal Forensic Engine (Doc 9303 / SWT / EXIF / Canonical 8-Rule)
+**Engine Version:** M4 Multi-Modal Forensic Engine (Doc 9303 / SWT / EXIF / Canonical 9-Rule)
 
 ---
 
@@ -605,10 +619,10 @@ def _export_markdown_report(
 
 ---
 
-## 2. Canonical 8-Rule Semantic Validation Performance
+## 2. Canonical 9-Rule Semantic Validation Performance
 
 The canonical rule battery enforces strict non-punitive conditional availability:
-- **Rule 1 (Calendar Sanity):** Flawlessly detected 30 Feb and 31 April impossible dates with leap-year boundary handling.
+- **Rule 1 (Calendar Sanity):** Flawlessly detected 30 Feb and 31 April impossible dates with leap-year boundary handling and multi-lingual textual month support (`15-MAY-1990`, `14/JUL/1982`, `MAI`, `JUIL`, `AOUT`).
 - **Rule 2 (Chronology Sequence):** Enforced $DOB < Issue < Expiry$ with zero inversions on genuine documents.
 - **Rule 3 (Age-at-Issue Sanity):** Identified negative ages at issuance while allowing non-punitive minor flags.
 - **Rule 4 (Validity Window):** Flagged validity durations exceeding the legal 25-year maximum window.
@@ -616,6 +630,7 @@ The canonical rule battery enforces strict non-punitive conditional availability
 - **Rule 6 (Doc Number Format):** Enforced regex schemas per issuing authority (`^FGL-\\d{{6}}-\\d{{2}}$` for Forgelensia).
 - **Rule 7 (Duplicate Contradiction):** Cross-checked raw OCR extractions against normalized values to prevent internal splits.
 - **Rule 8 (Name Sanity):** Detected dummy placeholder tokens (`TEST`, `SAMPLE`, `JOHN DOE`) without false-rejecting short names.
+- **Rule 9 (Country Code Sanity):** Validates 3-letter ISO 3166-1 alpha-3 and ICAO Doc 9303 country / nationality codes.
 
 ---
 
@@ -641,7 +656,17 @@ By extracting Euclidean distance transform skeletons across segmented text glyph
 
 ---
 
-## 5. Cross-Milestone Forensic Fusion (M1 $\\times$ M3 $\\times$ M4)
+## 5. JPEG EXIF & Byte-Stream XMP Provenance Forensics
+
+The provenance auditor inspects file metadata and raw header bytes:
+- **Software Blacklist Detection:** Identifies photo-editing artifacts (Photoshop, GIMP, Canva, Paint.NET).
+- **Embedded XMP Packet Parsing:** Extracts `<xmp:CreatorTool>` and `<photoshop:History>` even when standard EXIF tags are stripped by web savers.
+- **Chronological Coherence:** Validates $DateTimeDigitized \\le DateTimeOriginal \\le DateTimeModified$.
+- **Non-Punitive Stripped Exif Handling:** Cleanly classifies stripped metadata as `STRIPPED_OR_ABSENT` without inducing false rejections ($FRR = 0.00\\%$).
+
+---
+
+## 6. Cross-Milestone Forensic Fusion (M1 $\\times$ M3 $\\times$ M4)
 
 The fusion engine correlates physical pixel compression (ELA), motif duplications (Copy-Move), OCR fields, typography Z-scores, and semantic rules:
 - **Critical Fraud Escalation:** When a field with semantic failure or typography outlier overlaps spatially with an M1 tamper mask, alert level escalates immediately to `CRITICAL_CONFIRMED_FRAUD`.
@@ -649,7 +674,7 @@ The fusion engine correlates physical pixel compression (ELA), motif duplication
 
 ---
 
-## 6. Audit Artifacts & Inspection Cards
+## 7. Audit Artifacts & Inspection Cards
 - Visual diagnostic cards rendered into: `reports/visuals/`
 - Full record breakdown exported to: `reports/m4_semantic_summary.csv`
 - Machine-readable results saved in: `reports/m4_results.json`

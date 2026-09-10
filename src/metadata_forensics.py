@@ -11,6 +11,7 @@ Adheres to non-punitive conditional availability:
 """
 
 import os
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from PIL import ExifTags, Image
@@ -99,13 +100,27 @@ def extract_image_metadata(image_path: str) -> Dict[str, Any]:
     except Exception as e:
         result["read_error"] = str(e)
 
-    # Check raw file bytes for signature strings if EXIF wasn't cleanly parsed
+    # Check raw file bytes for signature strings and XMP packets
     try:
         with open(image_path, "rb") as f:
-            header_sample = f.read(65536)  # Inspect first 64KB for APP markers
+            header_sample = f.read(131072)  # Inspect first 128KB
             for sw_marker in [b"Photoshop", b"GIMP", b"Canva", b"Lightroom", b"Paint.NET", b"CorelDRAW"]:
                 if sw_marker.lower() in header_sample.lower():
                     result["raw_strings"].append(sw_marker.decode("ascii"))
+
+            # Parse XMP Packet if present
+            if b"<x:xmpmeta" in header_sample or b"<?xpacket" in header_sample:
+                result["has_xmp"] = True
+                m_tool = re.search(rb"<xmp:CreatorTool>([^<]+)</xmp:CreatorTool>", header_sample)
+                if m_tool:
+                    tool_str = m_tool.group(1).decode("utf-8", errors="replace").strip()
+                    result["xmp_creator_tool"] = tool_str
+                    if not result["software"]:
+                        result["software"] = tool_str
+                if b"photoshop:DocumentAncestors" in header_sample or b"photoshop:History" in header_sample:
+                    result["has_photoshop_history"] = True
+                    if not result["software"]:
+                        result["software"] = "Adobe Photoshop (XMP History Detected)"
     except Exception:
         pass
 
