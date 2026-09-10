@@ -1,0 +1,23 @@
+{
+  "doc_type": "fin_id",
+  "country": "FIN",
+  "source_clip_id": "clip_03_fin_id",
+  "frame_id": 3,
+  "fields": {
+    "name": {
+      "value": "MATTI VIRTANEN"
+    },
+    "dob": {
+      "value": "03/09/1990"
+    },
+    "document_number": {
+      "value": "A93820192"
+    },
+    "issue_date": {
+      "value": "20/06/2020"
+    },
+    "expiry_date": {
+      "value": "20/06/2025"
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "doc_type": "ind_id",
+  "country": "IND",
+  "source_clip_id": "clip_05_ind_id",
+  "frame_id": 1,
+  "fields": {
+    "name": {
+      "value": "VIKRAM SHARMA"
+    },
+    "dob": {
+      "value": "12/04/1985"
+    },
+    "document_number": {
+      "value": "FGL-849201-92"
+    },
+    "issue_date": {
+      "value": "15/08/2021"
+    },
+    "expiry_date": {
+      "value": "15/08/2031"
+    }
+  }
+}

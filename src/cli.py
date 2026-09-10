@@ -804,6 +804,188 @@ def cmd_screen_identity(args):
     print("=" * 60)
 
 
+# ---------------------------------------------------------------------------
+# Milestone 3: OCR & Structured Field Extraction Commands
+# ---------------------------------------------------------------------------
+
+def cmd_ocr(args):
+    """
+    Extract structured identity fields from an identity document image.
+    Extracts name, dob, document_number, issue_date, expiry_date.
+    """
+    from src.ocr import extract_structured_fields
+    from src.ocr_visualize import generate_ocr_diagnostic_card
+    from src.utils import ensure_dirs, get_reports_dir
+
+    print("=" * 60)
+    print("ForgeLens-X — Structured OCR Field Extraction (Milestone 3)")
+    print("=" * 60)
+    print(f"Document Image: {args.image}")
+    print(f"OCR Engine:     {args.engine}")
+    print("-" * 60)
+
+    if not os.path.exists(args.image):
+        print(f"[Error] Image file not found: {args.image}")
+        sys.exit(1)
+
+    t0 = time.time()
+    res = extract_structured_fields(
+        image_input=args.image,
+        engine=args.engine,
+        use_preprocessing=not args.no_preprocess,
+    )
+    latency_ms = (time.time() - t0) * 1000.0
+
+    fields = res.get("fields", {})
+    engine_used = res.get("engine", args.engine)
+    doc_type = res.get("document_type", "identity_card")
+
+    print(f"Document Type Detected: {doc_type}")
+    print(f"Engine Executed:        {engine_used}")
+    print(f"Processing Latency:     {latency_ms:.1f} ms\n")
+
+    print(f"{'FIELD':<18} | {'EXTRACTED VALUE':<24} | {'CONF':<6} | {'STATUS':<15} | {'BBOX'}")
+    print("-" * 80)
+
+    for field_name in ["name", "dob", "document_number", "issue_date", "expiry_date"]:
+        f_info = fields.get(field_name, {})
+        val = str(f_info.get("value") or "[NONE]")
+        conf = f_info.get("confidence", 0.0)
+        status = f_info.get("status", "UNKNOWN")
+        bbox = f_info.get("bbox")
+        bbox_str = f"[{bbox[0]},{bbox[1]},{bbox[2]},{bbox[3]}]" if bbox else "None"
+
+        print(f"{field_name:<18} | {val:<24} | {conf*100:>5.1f}% | {status:<15} | {bbox_str}")
+
+    # Generate Visual Diagnostic Card
+    out_path = args.output
+    if not out_path:
+        vis_dir = os.path.join(get_reports_dir(), "visuals")
+        ensure_dirs(vis_dir)
+        stem = Path(args.image).stem
+        out_path = os.path.join(vis_dir, f"ocr_card_{stem}.png")
+
+    try:
+        card_file = generate_ocr_diagnostic_card(
+            image_input=args.image,
+            extracted_res=res,
+            output_path=out_path,
+        )
+        if os.path.exists(card_file):
+            print(f"\nVisual Diagnostic Card Generated:\n  • {card_file}")
+    except Exception as e:
+        print(f"\n[Warning] Could not generate visual card: {e}")
+
+    print("=" * 60)
+
+
+def cmd_ocr_eval(args):
+    """
+    Evaluate OCR structured extraction accuracy and character error rate (CER)
+    across synthetic (Forgelensia M1) and real-world (MIDV-500) benchmarks.
+    """
+    from src.midv500 import generate_sample_midv500_dataset, load_midv500_dataset
+    from src.ocr_evaluate import evaluate_ocr_dataset, export_ocr_reports, load_synthetic_ocr_dataset
+    from src.ocr_visualize import batch_generate_ocr_cards
+    from src.utils import ensure_dirs, get_generated_dir, get_reports_dir
+
+    print("=" * 60)
+    print("ForgeLens-X — M3 OCR & Structured Extraction Benchmark")
+    print("=" * 60)
+    print(f"Target Dataset: {args.dataset}")
+    print(f"Sample Limit:   {args.samples}")
+    print(f"Engine:         {args.engine}")
+    print(f"Random Seed:    {args.seed}")
+    print("-" * 60)
+
+    synth_report = None
+    midv_report = None
+
+    # 1. Evaluate Synthetic Benchmark (Forgelensia M1)
+    if args.dataset in ["synthetic", "all"]:
+        print("\n[STEP 1] Evaluating Synthetic Benchmark (Forgelensia M1)...")
+        eval_synth_items = load_synthetic_ocr_dataset(limit=args.samples, seed=args.seed)
+        print(f"  • Running OCR on {len(eval_synth_items)} synthetic documents...")
+        synth_report = evaluate_ocr_dataset(
+            samples=eval_synth_items,
+            dataset_type="synthetic",
+            ocr_engine=args.engine,
+        )
+        s_ov = synth_report.get("overall_metrics", {})
+        print(f"    - Mean Latency:        {s_ov.get('mean_latency_ms', 0):.1f} ms/doc")
+        print(f"    - Overall CER:         {s_ov.get('mean_cer', 0):.4f} (Target <= 0.1500)")
+        print(f"    - Mean Similarity:     {s_ov.get('mean_edit_similarity', 0)*100:.1f}%")
+        print(f"    - Exact Match Rate:    {s_ov.get('exact_match_rate', 0)*100:.1f}%")
+
+    # 2. Evaluate Real-World Benchmark (MIDV-500)
+    if args.dataset in ["midv500", "all"]:
+        print("\n[STEP 2] Evaluating Real-World Benchmark (MIDV-500)...")
+        midv_data_dir = "data/midv500"
+        if not os.path.exists(midv_data_dir) or not os.listdir(midv_data_dir):
+            midv_data_dir = "data/midv500_sample"
+            if not os.path.exists(midv_data_dir) or not os.listdir(midv_data_dir):
+                print(f"  • Generating sample MIDV-500 benchmark fixture in {midv_data_dir}...")
+                generate_sample_midv500_dataset(output_dir=midv_data_dir, n_clips=5, frames_per_clip=3)
+
+        midv_ds = load_midv500_dataset(midv_data_dir)
+        midv_samples = midv_ds if isinstance(midv_ds, list) else midv_ds.get("samples", [])
+
+        if not midv_samples:
+            print("  [Warning] No MIDV-500 samples loaded.")
+        else:
+            eval_midv_items = midv_samples[:args.samples]
+            print(f"  • Running OCR on {len(eval_midv_items)} MIDV-500 video frames...")
+            midv_report = evaluate_ocr_dataset(
+                samples=eval_midv_items,
+                dataset_type="midv500",
+                ocr_engine=args.engine,
+            )
+            m_ov = midv_report.get("overall_metrics", {})
+            print(f"    - Mean Latency:        {m_ov.get('mean_latency_ms', 0):.1f} ms/frame")
+            print(f"    - Overall CER:         {m_ov.get('mean_cer', 0):.4f} (Target <= 0.2500)")
+            print(f"    - Mean Similarity:     {m_ov.get('mean_edit_similarity', 0)*100:.1f}%")
+            print(f"    - Exact Match Rate:    {m_ov.get('exact_match_rate', 0)*100:.1f}%")
+
+    # 3. Export Comprehensive Forensic Reports
+    print("\n[STEP 3] Exporting Forensic Audit Reports...")
+    export_paths = export_ocr_reports(
+        synthetic_report=synth_report,
+        midv_report=midv_report,
+    )
+    print(f"  • Summary CSV:   {export_paths['csv_path']}")
+    print(f"  • Audit Report:  {export_paths['md_path']}")
+    print(f"  • Results JSON:  {export_paths['json_path']}")
+
+    # 4. Generate Visual Diagnostic Explanation Cards
+    if args.cards > 0:
+        print(f"\n[STEP 4] Generating Visual Diagnostic Explanation Cards ({args.cards} cards)...")
+        vis_dir = os.path.join(get_reports_dir(), "visuals")
+        cards_generated = []
+
+        if synth_report and synth_report.get("sample_evaluations"):
+            c_paths = batch_generate_ocr_cards(
+                synth_report["sample_evaluations"],
+                output_dir=vis_dir,
+                max_cards=args.cards // 2 or 1,
+            )
+            cards_generated.extend(c_paths)
+
+        if midv_report and midv_report.get("sample_evaluations"):
+            c_paths = batch_generate_ocr_cards(
+                midv_report["sample_evaluations"],
+                output_dir=vis_dir,
+                max_cards=max(1, args.cards - len(cards_generated)),
+            )
+            cards_generated.extend(c_paths)
+
+        for c in cards_generated:
+            print(f"  • Generated: {c}")
+
+    print("\n" + "=" * 60)
+    print("Milestone 3 Benchmark Completed Successfully!")
+    print("=" * 60)
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="forgelens-m1",
@@ -873,6 +1055,23 @@ def main():
     si_parser.add_argument("--metric", type=str, default="cosine", choices=["cosine", "euclidean_l2"], help="Distance metric")
     si_parser.add_argument("--output", type=str, default=None, help="Output path for visual identity screening card")
 
+    # --- Milestone 3: OCR Subcommands ---
+
+    # ocr
+    ocr_parser = subparsers.add_parser("ocr", help="Extract structured identity fields using OCR")
+    ocr_parser.add_argument("image", type=str, help="Path to identity document image")
+    ocr_parser.add_argument("--engine", type=str, default="rapidocr", choices=["rapidocr", "tesseract"], help="OCR engine")
+    ocr_parser.add_argument("--no-preprocess", action="store_true", help="Disable adaptive image preprocessing")
+    ocr_parser.add_argument("--output", type=str, default=None, help="Output path for visual explanation card")
+
+    # ocr-eval
+    oe_parser = subparsers.add_parser("ocr-eval", help="Evaluate OCR field extraction and CER across benchmarks")
+    oe_parser.add_argument("--dataset", type=str, default="all", choices=["synthetic", "midv500", "all"], help="Benchmark dataset to evaluate")
+    oe_parser.add_argument("--samples", type=int, default=20, help="Number of document samples to evaluate")
+    oe_parser.add_argument("--engine", type=str, default="rapidocr", choices=["rapidocr", "tesseract"], help="OCR engine")
+    oe_parser.add_argument("--cards", type=int, default=4, help="Number of visual diagnostic explanation cards to generate")
+    oe_parser.add_argument("--seed", type=int, default=42, help="Random seed")
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -890,6 +1089,8 @@ def main():
         "face-compare": cmd_face_compare,
         "face-eval": cmd_face_eval,
         "screen-identity": cmd_screen_identity,
+        "ocr": cmd_ocr,
+        "ocr-eval": cmd_ocr_eval,
     }
 
     commands[args.command](args)

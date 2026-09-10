@@ -1,0 +1,23 @@
+{
+  "doc_type": "dza_id",
+  "country": "DZA",
+  "source_clip_id": "clip_02_dza_id",
+  "frame_id": 3,
+  "fields": {
+    "name": {
+      "value": "AMINE BENALI"
+    },
+    "dob": {
+      "value": "25/11/1988"
+    },
+    "document_number": {
+      "value": "108392019482"
+    },
+    "issue_date": {
+      "value": "05/01/2018"
+    },
+    "expiry_date": {
+      "value": "05/01/2028"
+    }
+  }
+}

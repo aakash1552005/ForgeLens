@@ -1,0 +1,23 @@
+{
+  "doc_type": "fra_id",
+  "country": "FRA",
+  "source_clip_id": "clip_04_fra_id",
+  "frame_id": 2,
+  "fields": {
+    "name": {
+      "value": "JEAN BOURGEOIS"
+    },
+    "dob": {
+      "value": "18/02/1975"
+    },
+    "document_number": {
+      "value": "180275819201"
+    },
+    "issue_date": {
+      "value": "14/09/2016"
+    },
+    "expiry_date": {
+      "value": "14/09/2031"
+    }
+  }
+}

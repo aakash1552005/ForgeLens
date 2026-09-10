@@ -1,0 +1,23 @@
+{
+  "doc_type": "alb_id",
+  "country": "ALB",
+  "source_clip_id": "clip_01_alb_id",
+  "frame_id": 1,
+  "fields": {
+    "name": {
+      "value": "KASTRIOT HOXHA"
+    },
+    "dob": {
+      "value": "14/07/1982"
+    },
+    "document_number": {
+      "value": "J10294819M"
+    },
+    "issue_date": {
+      "value": "12/03/2019"
+    },
+    "expiry_date": {
+      "value": "12/03/2029"
+    }
+  }
+}

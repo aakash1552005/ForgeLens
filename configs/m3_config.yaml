@@ -1,0 +1,58 @@
+# ForgeLens-X — Milestone 3 Configuration
+# OCR, Structured Field Extraction & MIDV-500 Validation
+
+seed: 42
+
+engines:
+  primary: "rapidocr"               # PaddleOCR PP-OCRv4 ONNX model via rapidocr-onnxruntime
+  fallback_tesseract: true          # Pytesseract fallback if installed
+  fallback_template: true           # Geometric regex-guided template extraction fallback
+  confidence_threshold: 0.50        # Acceptance threshold for extracted field
+  min_line_confidence: 0.30         # Minimum confidence for raw text line detection
+
+target_fields:
+  name:
+    type: "text"
+    min_length: 3
+  dob:
+    type: "date"
+    format: "DD/MM/YYYY"
+    regex: "\\b(\\d{2}[/.-]\\d{2}[/.-]\\d{4})\\b"
+  document_number:
+    type: "alphanumeric"
+    regex: "\\b(FGL-\\d{6}-\\d{2}|[A-Z0-9]{8,15})\\b"
+  issue_date:
+    type: "date"
+    format: "DD/MM/YYYY"
+    regex: "\\b(\\d{2}[/.-]\\d{2}[/.-]\\d{4})\\b"
+  expiry_date:
+    type: "date"
+    format: "DD/MM/YYYY"
+    regex: "\\b(\\d{2}[/.-]\\d{2}[/.-]\\d{4})\\b"
+
+template:
+  forgelensia:
+    dimensions: [800, 500]
+    field_bboxes:
+      document_number: [215, 105, 450, 140]
+      name: [215, 145, 550, 180]
+      dob: [215, 185, 380, 220]
+      issue_date: [215, 225, 380, 260]
+      expiry_date: [430, 225, 600, 260]
+
+midv500:
+  data_dir: "data/midv500"
+  sample_dir: "data/midv500_sample"
+  clip_split_ratio:
+    train: 0.70
+    cal: 0.15
+    test: 0.15
+  supported_types:
+    - "id_card"
+    - "passport"
+    - "driving_licence"
+
+metrics:
+  cer_max_threshold: 0.15
+  exact_match_target: 0.90
+  edit_similarity_target: 0.95
