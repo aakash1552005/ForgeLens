@@ -407,6 +407,9 @@ def render_unified_forensic_card(
     # Save to disk if requested
     saved_path = None
     if output_path:
+        ext = os.path.splitext(output_path)[1].lower()
+        if ext not in [".png", ".jpg", ".jpeg", ".bmp", ".webp", ".tiff"]:
+            output_path = os.path.splitext(output_path)[0] + ".png"
         ensure_dirs(os.path.dirname(os.path.abspath(output_path)))
         cv2.imwrite(output_path, card)
         saved_path = output_path

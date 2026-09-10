@@ -1216,12 +1216,24 @@ def cmd_unified_screen(args):
         doc_type=args.doc_type,
     )
 
-    card_path = None
-    if getattr(args, "output", None) or getattr(args, "card", True):
-        doc_bgr = cv2.imread(image_path)
-        _, card_path = render_unified_forensic_card(doc_bgr, report, output_path=getattr(args, "output", None))
-
+    output_arg = getattr(args, "output", None)
     json_path = getattr(args, "json", None)
+    card_output_path = None
+
+    if output_arg:
+        if output_arg.lower().endswith(".json"):
+            # User specified JSON report export via --output
+            if not json_path:
+                json_path = output_arg
+        else:
+            # User specified diagnostic card path via --output
+            card_output_path = output_arg
+
+    card_path = None
+    if getattr(args, "card", True):
+        doc_bgr = cv2.imread(image_path)
+        _, card_path = render_unified_forensic_card(doc_bgr, report, output_path=card_output_path)
+
     if json_path:
         export_unified_report(report, json_path=json_path)
 

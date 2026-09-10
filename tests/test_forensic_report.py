@@ -327,3 +327,28 @@ def test_cli_unified_screen_selfie_flag(tmp_path, monkeypatch, capsys):
     assert "Milestone 5: Unified Forensic Screening" in captured.out
     assert "Reference Face:" in captured.out
 
+
+def test_cli_unified_screen_output_json_extension(tmp_path, monkeypatch, capsys):
+    """Verify CLI unified-screen routes --output ending in .json to JSON export without crashing cv2."""
+    from src.cli import main
+
+    test_img = str(tmp_path / "cli_test_doc.jpg")
+    img = np.full((650, 1000, 3), 240, dtype=np.uint8)
+    cv2.putText(img, "FORGELENSIA TEST DOC", (100, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+    cv2.imwrite(test_img, img)
+
+    out_json = str(tmp_path / "single_audit.json")
+
+    monkeypatch.setattr(
+        "sys.argv",
+        ["forgelens-m1", "unified-screen", test_img, "--output", out_json],
+    )
+    main()
+
+    captured = capsys.readouterr()
+    assert "Milestone 5: Unified Forensic Screening" in captured.out
+    assert os.path.exists(out_json)
+    with open(out_json, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    assert data["schema_version"] == "1.0"
+
