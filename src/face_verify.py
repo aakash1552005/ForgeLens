@@ -217,6 +217,9 @@ def extract_face(
                 y2 = min(h, y + fh)
                 aligned_crop = cv2.resize(img_bgr[y1:y2, x1:x2], (112, 112))
 
+            from src.face_quality import assess_face_quality
+            quality = assess_face_quality(img_bgr, landmarks=landmarks, bbox=[x, y, fw, fh])
+
             return {
                 "face_crop": aligned_crop,
                 "bbox": [x, y, fw, fh],
@@ -225,6 +228,7 @@ def extract_face(
                 "detector": "yunet",
                 "original_size": (w, h),
                 "raw_face_data": best_face,
+                "quality": quality,
             }
 
     # 3. Fallback: OpenCV Haar Cascade detector
@@ -240,6 +244,10 @@ def extract_face(
             x1, y1 = max(0, x), max(0, y)
             x2, y2 = min(w, x + fw), min(h, y + fh)
             crop = cv2.resize(img_bgr[y1:y2, x1:x2], (112, 112))
+
+            from src.face_quality import assess_face_quality
+            quality = assess_face_quality(img_bgr, bbox=[x, y, fw, fh])
+
             return {
                 "face_crop": crop,
                 "bbox": [x, y, fw, fh],
@@ -248,6 +256,7 @@ def extract_face(
                 "detector": "haar_cascade",
                 "original_size": (w, h),
                 "raw_face_data": None,
+                "quality": quality,
             }
 
     return None
@@ -511,6 +520,18 @@ def verify(
     else:
         tier = "BORDERLINE"
 
+    # Biometric quality audit and forensic warnings
+    warnings = []
+    doc_q = doc_data.get("quality", {})
+    live_q = live_data.get("quality", {})
+
+    if doc_q.get("quality_tier") in ["DEGRADED", "UNUSABLE"]:
+        flags_str = ", ".join(doc_q.get("flags", []))
+        warnings.append(f"Document photo crop quality is {doc_q.get('quality_tier')} ({flags_str})")
+    if live_q.get("quality_tier") in ["DEGRADED", "UNUSABLE"]:
+        flags_str = ", ".join(live_q.get("flags", []))
+        warnings.append(f"Live face selfie quality is {live_q.get('quality_tier')} ({flags_str})")
+
     elapsed = round(time.time() - start_time, 3)
 
     return {
@@ -529,6 +550,11 @@ def verify(
             "document_face": doc_data["landmarks"],
             "live_face": live_data["landmarks"],
         },
+        "quality": {
+            "document_face": doc_q,
+            "live_face": live_q,
+        },
+        "warnings": warnings,
         "verdict_tier": tier,
         "time_seconds": elapsed,
         "engine": "native_opencv",

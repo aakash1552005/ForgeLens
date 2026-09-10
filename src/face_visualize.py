@@ -58,6 +58,7 @@ def _render_face_panel(
     landmarks: Optional[List[List[float]]],
     target_size: Tuple[int, int] = (PANEL_WIDTH, PANEL_HEIGHT),
     title: str = "Face Analysis",
+    quality: Optional[Dict[str, Any]] = None,
 ) -> np.ndarray:
     """
     Render a face panel showing cropped/focused face with 5 landmarks.
@@ -159,12 +160,26 @@ def _render_face_panel(
             )
             cv2.putText(
                 canvas, f"Crop Size: {bw}x{bh} px",
-                (thumb_x, text_y + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (148, 163, 184), 1, cv2.LINE_AA
+                (thumb_x, text_y + 18), cv2.FONT_HERSHEY_SIMPLEX, 0.40, (148, 163, 184), 1, cv2.LINE_AA
             )
-            if landmarks:
+            if quality:
+                tier = quality.get("quality_tier", "ACCEPTABLE")
+                q_score = quality.get("quality_score", 0.0)
+                sh = quality.get("sharpness", 0.0)
+                iod = quality.get("iod", 0.0)
+                q_col = (34, 197, 94) if tier in ["EXCELLENT", "ACCEPTABLE"] else ((245, 158, 11) if tier == "DEGRADED" else (239, 68, 68))
+                cv2.putText(
+                    canvas, f"ISO Quality: {tier} ({q_score:.0f}/100)",
+                    (thumb_x, text_y + 36), cv2.FONT_HERSHEY_SIMPLEX, 0.40, q_col, 1, cv2.LINE_AA
+                )
+                cv2.putText(
+                    canvas, f"Sharpness: {sh:.0f} | IOD: {iod:.0f}px",
+                    (thumb_x, text_y + 54), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (148, 163, 184), 1, cv2.LINE_AA
+                )
+            elif landmarks:
                 cv2.putText(
                     canvas, "5-Pt Landmarks: Detected",
-                    (thumb_x, text_y + 40), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (52, 211, 153), 1, cv2.LINE_AA
+                    (thumb_x, text_y + 36), cv2.FONT_HERSHEY_SIMPLEX, 0.40, (52, 211, 153), 1, cv2.LINE_AA
                 )
     else:
         # No face detected
@@ -502,16 +517,22 @@ def create_face_forensic_card(
             live_bbox = l_data.get("bbox")
             live_lm = l_data.get("landmarks")
 
+    qual = verification_result.get("quality", {})
+    doc_q = qual.get("document_face")
+    live_q = qual.get("live_face")
+
     # 3. Render 4 individual panels
     p1 = _render_face_panel(
         document_face_path, doc_bbox, doc_lm,
         target_size=(PANEL_WIDTH, PANEL_HEIGHT),
         title="Panel 1: Document Face Crop & Landmarks",
+        quality=doc_q,
     )
     p2 = _render_face_panel(
         live_face_path, live_bbox, live_lm,
         target_size=(PANEL_WIDTH, PANEL_HEIGHT),
         title="Panel 2: Presented Live Face & Landmarks",
+        quality=live_q,
     )
     p3 = _render_gauge_panel(
         verification_result,

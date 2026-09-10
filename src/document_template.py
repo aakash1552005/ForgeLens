@@ -11,11 +11,12 @@ Safety:
 """
 
 import math
+import os
 import random
 from datetime import datetime, timedelta
 
 from faker import Faker
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 from src.utils import set_seed
 
@@ -175,13 +176,14 @@ def _draw_stamp(draw: ImageDraw.Draw, bbox: list) -> None:
     draw.text((cx - r + 18, cy + r - 18), "OFFICIAL SEAL", fill=(180, 50, 50), font=font)
 
 
-def generate_document(source_id: str, seed: int = 42) -> dict:
+def generate_document(source_id: str, seed: int = 42, face_photo: Optional[Any] = None) -> dict:
     """
     Generate a single fictional identity document.
 
     Args:
         source_id: unique identifier (e.g. "src_0001")
         seed: random seed for deterministic generation
+        face_photo: optional image path, numpy array, or PIL Image of portrait
 
     Returns:
         {
@@ -198,25 +200,29 @@ def generate_document(source_id: str, seed: int = 42) -> dict:
     name = fake.name()
     dob = fake.date_of_birth(minimum_age=18, maximum_age=65)
     issue_date = fake.date_between(start_date="-5y", end_date="today")
-    expiry_date = issue_date + timedelta(days=random.randint(3650, 7300))  # 10-20 yrs
-    doc_number = f"FGL-{random.randint(100000, 999999):06d}-{random.randint(10, 99):02d}"
+    from datetime import timedelta
+    import random
+    expiry_date = issue_date + timedelta(days=random.randint(3650, 7300))
 
     dob_str = dob.strftime("%d/%m/%Y")
     issue_str = issue_date.strftime("%d/%m/%Y")
     expiry_str = expiry_date.strftime("%d/%m/%Y")
+    doc_number = f"FGL-{random.randint(100000, 999999):06d}-{random.randint(10, 99):02d}"
 
     # --- Create canvas ---
-    img = Image.new("RGB", (DOC_WIDTH, DOC_HEIGHT), BG_COLOR)
-    draw = ImageDraw.Draw(img)
+    image = Image.new("RGB", (DOC_WIDTH, DOC_HEIGHT), BG_COLOR)
+    img = image
+    draw = ImageDraw.Draw(image)
 
-    # Background pattern
+    # Security guilloche background pattern
     _draw_guilloche_pattern(draw, DOC_WIDTH, DOC_HEIGHT)
 
-    # Border
+    # Outer border
     draw.rectangle([5, 5, DOC_WIDTH - 6, DOC_HEIGHT - 6], outline=BORDER_COLOR, width=3)
+    draw.rectangle([10, 10, DOC_WIDTH - 11, DOC_HEIGHT - 11], outline=BORDER_COLOR, width=1)
 
-    # Header bar
-    draw.rectangle([5, 5, DOC_WIDTH - 6, 60], fill=HEADER_BG)
+    # Header band
+    draw.rectangle([12, 12, DOC_WIDTH - 13, 55], fill=HEADER_BG)
     header_font = _get_bold_font(18)
     draw.text(
         (20, 15),
@@ -233,8 +239,34 @@ def generate_document(source_id: str, seed: int = 42) -> dict:
 
     # Photo region (left side)
     photo_bbox = [30, 80, 200, 260]
-    _draw_placeholder_photo(draw, photo_bbox, seed)
-    fields["photo"] = {"bbox": photo_bbox, "value": "placeholder"}
+    pw, ph = photo_bbox[2] - photo_bbox[0], photo_bbox[3] - photo_bbox[1]
+
+    if face_photo is not None:
+        try:
+            if isinstance(face_photo, str) and os.path.exists(face_photo):
+                p_img = Image.open(face_photo).convert("RGB")
+            elif isinstance(face_photo, np.ndarray):
+                p_img = Image.fromarray(cv2.cvtColor(face_photo, cv2.COLOR_BGR2RGB))
+            elif isinstance(face_photo, Image.Image):
+                p_img = face_photo.convert("RGB")
+            else:
+                p_img = None
+
+            if p_img is not None:
+                from PIL import ImageOps
+                p_resized = ImageOps.fit(p_img, (pw, ph), method=Image.Resampling.LANCZOS)
+                image.paste(p_resized, (photo_bbox[0], photo_bbox[1]))
+                draw.rectangle(photo_bbox, outline=BORDER_COLOR, width=2)
+                fields["photo"] = {"bbox": photo_bbox, "value": "portrait"}
+            else:
+                _draw_placeholder_photo(draw, photo_bbox, seed)
+                fields["photo"] = {"bbox": photo_bbox, "value": "placeholder"}
+        except Exception:
+            _draw_placeholder_photo(draw, photo_bbox, seed)
+            fields["photo"] = {"bbox": photo_bbox, "value": "placeholder"}
+    else:
+        _draw_placeholder_photo(draw, photo_bbox, seed)
+        fields["photo"] = {"bbox": photo_bbox, "value": "placeholder"}
 
     # Name
     name_pos = (230, 85)

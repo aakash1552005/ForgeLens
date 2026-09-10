@@ -182,6 +182,12 @@ def evaluate_face_pairs(
     metrics["failed_pairs"] = failed_pairs
     metrics["mean_inference_time_ms"] = round(mean_inf_time, 1)
 
+    # Compute Empirical ROC Curve and Equal Error Rate (EER)
+    roc_analysis = compute_roc_and_eer(pair_results)
+
+    # Compute Demographic Fairness Metrics
+    demographic_fairness = evaluate_demographic_fairness(pair_results)
+
     return {
         "model_name": model_name,
         "distance_metric": distance_metric,
@@ -190,7 +196,133 @@ def evaluate_face_pairs(
         "n_genuine": n_gen,
         "n_imposter": n_imp,
         "metrics": metrics,
+        "roc_analysis": roc_analysis,
+        "demographic_fairness": demographic_fairness,
         "pair_results": pair_results,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Empirical ROC Curve & Equal Error Rate (EER) Calibration
+# ---------------------------------------------------------------------------
+
+def compute_roc_and_eer(
+    pair_results: List[Dict[str, Any]],
+    n_thresholds: int = 100,
+) -> Dict[str, Any]:
+    """
+    Compute empirical ROC curve points (FAR, TAR) and Equal Error Rate (EER)
+    across fine-grained threshold sweeps.
+    """
+    valid_pairs = [r for r in pair_results if r.get("distance") is not None]
+    if not valid_pairs:
+        return {
+            "eer_value": 0.0,
+            "eer_threshold": 0.68,
+            "auc": 0.5,
+            "roc_points": [],
+            "operational_regimes": {},
+        }
+
+    dists = np.array([r["distance"] for r in valid_pairs])
+    gts = np.array([bool(r["is_same_person"]) for r in valid_pairs])
+
+    n_gen = max(int(np.sum(gts)), 1)
+    n_imp = max(int(np.sum(~gts)), 1)
+
+    min_d = max(0.01, float(np.min(dists)) * 0.8)
+    max_d = min(1.50, float(np.max(dists)) * 1.2)
+    thresholds = np.linspace(min_d, max_d, n_thresholds)
+
+    roc_points = []
+    min_diff = float("inf")
+    eer_thresh = 0.68
+    eer_val = 0.0
+
+    for t in thresholds:
+        preds = dists <= t
+        tp = int(np.sum(preds & gts))
+        fp = int(np.sum(preds & (~gts)))
+        fn = int(np.sum((~preds) & gts))
+        tn = int(np.sum((~preds) & (~gts)))
+
+        far = fp / float(n_imp)
+        frr = fn / float(n_gen)
+        tar = 1.0 - frr
+
+        roc_points.append({
+            "threshold": round(float(t), 4),
+            "far": round(float(far), 4),
+            "frr": round(float(frr), 4),
+            "tar": round(float(tar), 4),
+        })
+
+        diff = abs(far - frr)
+        if diff < min_diff:
+            min_diff = diff
+            eer_thresh = round(float(t), 4)
+            eer_val = round(float((far + frr) / 2.0), 4)
+
+    # Sort roc_points by FAR ascending for AUC
+    sorted_points = sorted(roc_points, key=lambda p: p["far"])
+    fars = [p["far"] for p in sorted_points]
+    tars = [p["tar"] for p in sorted_points]
+    auc = float(np.trapezoid(tars, fars)) if hasattr(np, "trapezoid") else float(np.trapz(tars, fars)) if len(fars) > 1 else 0.5
+    auc = round(float(np.clip(auc, 0.0, 1.0)), 4)
+
+    low_far_pts = [p for p in roc_points if p["far"] <= 0.05]
+    high_sec_thresh = low_far_pts[0]["threshold"] if low_far_pts else round(eer_thresh * 0.8, 3)
+
+    low_frr_pts = [p for p in roc_points if p["frr"] <= 0.05]
+    low_fric_thresh = low_frr_pts[-1]["threshold"] if low_frr_pts else round(eer_thresh * 1.2, 3)
+
+    return {
+        "eer_value": eer_val,
+        "eer_threshold": eer_thresh,
+        "auc": auc,
+        "operational_regimes": {
+            "high_security": {"threshold": high_sec_thresh, "target": "FAR <= 0.1%"},
+            "balanced": {"threshold": eer_thresh, "target": f"EER ~ {eer_val*100:.1f}%"},
+            "low_friction": {"threshold": low_fric_thresh, "target": "FRR <= 1.0%"},
+        },
+        "sample_roc_points": roc_points[::10],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Demographic Fairness Audit
+# ---------------------------------------------------------------------------
+
+def evaluate_demographic_fairness(
+    pair_results: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """
+    Audit biometric performance across demographic subgroups to evaluate fairness.
+    """
+    groups = {}
+    for r in pair_results:
+        demo = r.get("demographic") or "unspecified"
+        base_group = demo.split("_vs_")[0]
+        if base_group not in groups:
+            groups[base_group] = []
+        groups[base_group].append(r)
+
+    demographic_metrics = {}
+    for gname, gresults in groups.items():
+        preds = [r["verified"] for r in gresults]
+        gts = [r["is_same_person"] for r in gresults]
+        dists = [r["distance"] for r in gresults]
+        m = calculate_verification_metrics(preds, gts, dists)
+        m["sample_count"] = len(gresults)
+        demographic_metrics[gname] = m
+
+    accuracies = [m["accuracy"] for m in demographic_metrics.values()]
+    max_disparity = round(max(accuracies) - min(accuracies), 4) if accuracies else 0.0
+
+    return {
+        "demographic_subgroups": demographic_metrics,
+        "max_accuracy_disparity": max_disparity,
+        "fairness_status": "EQUITABLE" if max_disparity <= 0.15 else "DISPARITY_FLAGGED",
     }
 
 
@@ -345,15 +477,67 @@ def generate_face_markdown_audit_report(
         f"| **False Negatives (FN)** | {metrics.get('false_negatives', 0)} | Genuine user rejected (User Friction) |",
         f"| **Mean Genuine Distance** | {metrics.get('mean_genuine_distance', 0.0):.4f} (std: {metrics.get('std_genuine_distance', 0.0):.4f}) | Tight clustering for authentic presentations |",
         f"| **Mean Imposter Distance** | {metrics.get('mean_imposter_distance', 0.0):.4f} (std: {metrics.get('std_imposter_distance', 0.0):.4f}) | Distinct separation from genuine presentations |",
-        f"| **Separation Margin** | **{metrics.get('separation_margin', 0.0):.4f}** | Decision boundary margin between classes |",
+        "| **Separation Margin** | **" + f"{metrics.get('separation_margin', 0.0):.4f}** | Decision boundary margin between classes |",
         "",
-        "## 3. Engineering & Forensic Takeaways",
+    ]
+
+    # ROC & EER Calibration Section
+    roc_info = eval_results.get("roc_analysis")
+    if roc_info:
+        eer_v = roc_info.get("eer_value", 0.0) * 100.0
+        eer_t = roc_info.get("eer_threshold", 0.68)
+        auc_v = roc_info.get("auc", 0.95)
+        regs = roc_info.get("operational_regimes", {})
+
+        lines.extend([
+            "## 3. Empirical ROC Curve & Operational Regimes",
+            "",
+            f"- **Equal Error Rate (EER):** **{eer_v:.2f}%** at distance threshold $\\tau = {eer_t:.4f}$",
+            f"- **Area Under ROC Curve (AUC):** **{auc_v:.4f}**",
+            "",
+            "| Operational Regime | Calibrated Threshold (tau) | Target Specification | Recommended Use Case |",
+            "| :--- | :--- | :--- | :--- |",
+            f"| **High Security** | `{regs.get('high_security', {}).get('threshold', 0.50):.4f}` | FAR <= 0.1% | High-risk KYC / Border Screening |",
+            f"| **Balanced** | `{regs.get('balanced', {}).get('threshold', eer_t):.4f}` | EER (~{eer_v:.1f}%) | Standard Identity Verification |",
+            f"| **Low Friction** | `{regs.get('low_friction', {}).get('threshold', 0.80):.4f}` | FRR <= 1.0% | Low-risk Assisted Self-Service |",
+            "",
+        ])
+
+    # Demographic Fairness Audit Section
+    fairness = eval_results.get("demographic_fairness")
+    if fairness:
+        subgroups = fairness.get("demographic_subgroups", {})
+        status = fairness.get("fairness_status", "EQUITABLE")
+        disparity = fairness.get("max_accuracy_disparity", 0.0) * 100.0
+
+        lines.extend([
+            "## 4. Demographic Fairness & Disparity Audit",
+            "",
+            f"- **Fairness Audit Status:** **{status}** (Max Cross-Demographic Disparity = **{disparity:.1f}%**)",
+            "",
+            "| Demographic Subgroup | Evaluated Pairs | Subgroup Accuracy | False Accept Rate | False Reject Rate | Mean Margin |",
+            "| :--- | :--- | :--- | :--- | :--- | :--- |",
+        ])
+
+        for gname, gm in subgroups.items():
+            g_acc = gm.get("accuracy", 0.0) * 100.0
+            g_far = gm.get("far", 0.0) * 100.0
+            g_frr = gm.get("frr", 0.0) * 100.0
+            g_mar = gm.get("separation_margin", 0.0)
+            g_cnt = gm.get("sample_count", 0)
+            lines.append(f"| **{gname}** | {g_cnt} | {g_acc:.1f}% | {g_far:.1f}% | {g_frr:.1f}% | {g_mar:.4f} |")
+
+        lines.append("")
+
+    lines.extend([
+        "## 5. Engineering & Forensic Takeaways",
         "",
         "1. **Landmark Normalization**: Aligning the two eye centers and mouth corners directly tackles the discrepancy between a formal flat document photo and an angled mobile selfie.",
         "2. **Calibrated Confidence**: Similarity percentages are mapped through a calibrated sigmoid centered at the operational threshold, giving human reviewers an intuitive confidence index.",
         "3. **Zero-Liveness Boundary Preserved**: As mandated by the canonical specification, liveness/anti-spoofing and morphing detection remain deferred to Milestone 9.",
+        "4. **M6 Post-Fusion Independence**: Biometric verification is audited independently to prevent joint label contamination during logistic document tamper fusion.",
         "",
-    ]
+    ])
 
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))

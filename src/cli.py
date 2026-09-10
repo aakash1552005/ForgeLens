@@ -686,6 +686,100 @@ def cmd_face_eval(args):
 
 
 
+def cmd_screen_identity(args):
+    """
+    Perform end-to-end identity screening:
+    Checks document tamper forensics (ELA + Copy-Move) and verifies
+    extracted document face against presented live selfie.
+    """
+    from src.identity_screener import screen_identity, create_identity_screening_card
+    from src.utils import get_reports_dir, ensure_dirs
+
+    print("=" * 60)
+    print("ForgeLens-X — End-to-End Identity Screening (M1 + M2 Bridge)")
+    print("=" * 60)
+    print(f"Document ID: {args.doc_image}")
+    print(f"Live Selfie: {args.live_face}")
+    print(f"Model:       {args.model}")
+    print(f"Metric:      {args.metric}")
+    print("-" * 60)
+
+    res = screen_identity(
+        document_path=args.doc_image,
+        live_face_path=args.live_face,
+        model_name=args.model,
+        distance_metric=args.metric,
+    )
+
+    verdict = res.get("verdict", "UNKNOWN")
+    tier = res.get("verdict_tier", "UNKNOWN")
+    summary = res.get("summary", "")
+    explanation = res.get("explanation", "")
+    rec = res.get("action_recommended", "")
+    signals = res.get("signals", {})
+
+    badge_map = {
+        "VERIFIED_AUTHENTIC": "[PASS - AUTHENTIC]",
+        "CRITICAL_PHOTO_SWAP_FRAUD": "[CRITICAL ALERT - PHOTO SWAP]",
+        "IMPOSTER_MISMATCH": "[REJECT - IMPOSTER]",
+        "TAMPERED_DOCUMENT_ALTERATION": "[ALERT - DOCUMENT TAMPERED]",
+        "TOTAL_FRAUD_REJECTED": "[SEVERE ALERT - TOTAL FRAUD]",
+        "BORDERLINE_REVIEW": "[FLAGGED - BORDERLINE]",
+        "ERROR": "[ERROR]",
+    }
+    badge = badge_map.get(verdict, f"[{verdict}]")
+
+    print(f"OVERALL SCREENING VERDICT: {badge}")
+    print(f"Status Tier: {tier}")
+    print("-" * 60)
+    print("FORENSIC EVIDENCE BREAKDOWN:")
+    print(f"  • Physical Document Tampering: {'DETECTED [FAIL]' if res.get('document_tampered') else 'CLEAN [PASS]'}")
+    print(f"    - ELA Anomaly:               {'POSITIVE' if signals.get('ela_detected') else 'NEGATIVE'}")
+    if signals.get("ela_candidate"):
+        cand = signals["ela_candidate"]
+        print(f"      Energy: {cand.get('energy', 0.0):.1f} | Area: {cand.get('area', 0)} px | BBox: {cand.get('bbox')}")
+    print(f"    - Copy-Move Cloning:         {'POSITIVE' if signals.get('copy_move_detected') else 'NEGATIVE'}")
+    if signals.get("copy_move_detected"):
+        print(f"      Inliers: {signals.get('copy_move_inliers', 0)}")
+    print(f"    - Photo-Swap Spatial Overlap: {'DETECTED [CRITICAL]' if signals.get('photo_swap_detected') else 'NEGATIVE'}")
+    if signals.get("photo_swap_iou", 0) > 0:
+        print(f"      Face-Tamper IoU: {signals.get('photo_swap_iou', 0.0):.3f}")
+
+    print(f"\n  • Biometric Face Verification: {'MATCH [PASS]' if res.get('face_verified') else 'MISMATCH [FAIL]'}")
+    if "face_distance" in signals and signals["face_distance"] is not None:
+        dist = signals["face_distance"]
+        thresh = signals.get("face_threshold", 0.6)
+        conf = signals.get("face_confidence", 0.0)
+        print(f"    - Distance: {dist:.4f} (Threshold: {thresh:.4f})")
+        print(f"    - Face Confidence: {conf * 100:.1f}%")
+
+    doc_q = signals.get("doc_face_quality", {})
+    if doc_q:
+        print(f"    - ID Face Quality:   {doc_q.get('quality_tier', 'N/A')} (Score: {doc_q.get('overall_score', 0):.1f}/100, Sharpness: {doc_q.get('sharpness', 0):.1f})")
+    live_q = signals.get("live_face_quality", {})
+    if live_q:
+        print(f"    - Live Face Quality: {live_q.get('quality_tier', 'N/A')} (Score: {live_q.get('overall_score', 0):.1f}/100, Sharpness: {live_q.get('sharpness', 0):.1f})")
+
+    print(f"\nEXPLANATION:\n  {explanation}")
+    if rec:
+        print(f"\nRECOMMENDED ACTION:\n  {rec}")
+
+    out_path = args.output
+    if not out_path:
+        vis_dir = os.path.join(get_reports_dir(), "visuals", "identity")
+        ensure_dirs(vis_dir)
+        d_stem = Path(args.doc_image).stem
+        l_stem = Path(args.live_face).stem
+        out_path = os.path.join(vis_dir, f"{d_stem}_vs_{l_stem}_screen_card.png")
+
+    card_res = create_identity_screening_card(res, output_path=out_path)
+    if card_res and os.path.exists(out_path):
+        print(f"\nVisual Identity Diagnostic Card generated:")
+        print(f"  • {out_path}")
+    print(f"Total screening time: {res.get('time_seconds', 0.0):.3f}s")
+    print("=" * 60)
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="forgelens-m1",
@@ -747,6 +841,14 @@ def main():
     fe_parser.add_argument("--cards", type=int, default=4, help="Number of visual diagnostic cards to generate")
     fe_parser.add_argument("--seed", type=int, default=42, help="Random seed")
 
+    # screen-identity (Bridge M1 + M2)
+    si_parser = subparsers.add_parser("screen-identity", help="End-to-end screen document tamper + live face verification")
+    si_parser.add_argument("doc_image", type=str, help="Path to identity document image")
+    si_parser.add_argument("live_face", type=str, help="Path to presented live selfie image")
+    si_parser.add_argument("--model", type=str, default="ArcFace", choices=["ArcFace", "Facenet512", "SFace"], help="Face recognition model")
+    si_parser.add_argument("--metric", type=str, default="cosine", choices=["cosine", "euclidean_l2"], help="Distance metric")
+    si_parser.add_argument("--output", type=str, default=None, help="Output path for visual identity screening card")
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -763,6 +865,7 @@ def main():
         "face-verify": cmd_face_verify,
         "face-compare": cmd_face_compare,
         "face-eval": cmd_face_eval,
+        "screen-identity": cmd_screen_identity,
     }
 
     commands[args.command](args)
