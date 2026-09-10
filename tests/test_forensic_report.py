@@ -352,3 +352,89 @@ def test_cli_unified_screen_output_json_extension(tmp_path, monkeypatch, capsys)
         data = json.load(f)
     assert data["schema_version"] == "1.0"
 
+
+def test_quality_analysis_brightness_and_contrast():
+    """Verify detection of underexposure, overexposure, and low contrast."""
+    # 1. Extreme underexposure (pitch black)
+    black_img = np.full((600, 800, 3), 10, dtype=np.uint8)
+    q_black = analyze_document_quality(black_img)
+    assert q_black["analysis_reliability"] == "LOW"
+    assert any("EXTREME_UNDEREXPOSURE" in f for f in q_black["quality_flags"])
+    assert q_black["mean_brightness"] < 20.0
+
+    # 2. Extreme overexposure (washed out)
+    white_img = np.full((600, 800, 3), 250, dtype=np.uint8)
+    q_white = analyze_document_quality(white_img)
+    assert q_white["analysis_reliability"] == "LOW"
+    assert any("EXTREME_OVEREXPOSURE" in f for f in q_white["quality_flags"])
+    assert q_white["mean_brightness"] > 245.0
+
+    # 3. Low contrast (flat gray)
+    gray_img = np.full((600, 800, 3), 128, dtype=np.uint8)
+    q_gray = analyze_document_quality(gray_img)
+    assert q_gray["analysis_reliability"] == "LOW"
+    assert any("INSUFFICIENT_CONTRAST" in f for f in q_gray["quality_flags"])
+
+
+def test_correlate_suspicious_regions_multi_overlapping():
+    """Verify that suspicious regions report overlapping_fields list and include MRZ/metadata anomalies."""
+    fields = {
+        "issue_date": {"bbox": [100, 100, 250, 140], "value": "10/05/2020"},
+        "expiry_date": {"bbox": [100, 130, 250, 170], "value": "10/05/2030"},
+    }
+    # Anomaly spanning across both stacked date fields
+    ela_cand = {"bbox": [95, 105, 255, 165], "energy": 95.0, "mean_anomaly": 2.1}
+    mrz_fail = {"status": "FAIL", "verdict": "Checksum Forgery"}
+    meta_tamper = {"is_tampered": True, "software": "Adobe Photoshop CC"}
+
+    regions = correlate_suspicious_regions(
+        fields=fields,
+        ela_candidate=ela_cand,
+        mrz_data=mrz_fail,
+        metadata_audit=meta_tamper,
+    )
+
+    assert len(regions) >= 3
+    ela_reg = next(r for r in regions if r["source"] == "ela")
+    assert "overlapping_fields" in ela_reg
+    assert len(ela_reg["overlapping_fields"]) >= 1
+
+    mrz_reg = next(r for r in regions if r["source"] == "mrz")
+    assert mrz_reg["field"] == "mrz"
+    assert "Modulo-10 checksum failure" in mrz_reg["evidence"]
+
+    meta_reg = next(r for r in regions if r["source"] == "metadata")
+    assert meta_reg["field"] == "file_provenance"
+    assert "Photoshop" in meta_reg["evidence"]
+
+
+def test_compute_attack_hypotheses_and_severity():
+    """Verify multi-attack hypothesis ranking, secondary guess, and fraud severity calculation."""
+    from src.forensic_report import compute_attack_hypotheses_and_severity
+
+    # Scenario: Both Date Edit and Text Edit anomalies present
+    susp_regs = [
+        {"source": "ela", "field": "issue_date", "confidence": 0.85, "evidence": "ELA"},
+        {"source": "typography", "field": "document_number", "confidence": 0.80, "evidence": "Font Z-score"},
+    ]
+    sem_checks = [
+        {"check": "chronology_order", "status": "FAIL", "detail": "Issue after expiry"},
+        {"check": "document_number_format", "status": "FAIL", "detail": "Invalid regex"},
+    ]
+
+    res = compute_attack_hypotheses_and_severity(
+        tamper_signals={"copy_move": {"num_matches": 0}},
+        semantic_checks=sem_checks,
+        font_audit={"typography_verdict": "SUSPECT_FONT_INCONSISTENCY"},
+        face_verification={"has_face_check": False},
+        suspicious_regions=susp_regs,
+        attack_guess="date_edit",
+        attack_conf=0.85,
+    )
+
+    assert res["secondary_attack_guess"] == "text_edit"
+    assert res["secondary_attack_confidence"] is not None
+    assert res["multi_attack_detected"] is True
+    assert res["fraud_severity"] == "CRITICAL"
+    assert len(res["attack_hypotheses_ranked"]) >= 2
+

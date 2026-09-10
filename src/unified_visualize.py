@@ -49,7 +49,17 @@ def _draw_header(card: np.ndarray, doc_id: str, decision: str, attack_type: str)
     cv2.putText(card, doc_str, (540, 27), cv2.FONT_HERSHEY_SIMPLEX, 0.48, TEXT_MUTED, 1, cv2.LINE_AA)
 
     # Decision badge
-    dec_color = GREEN if decision == "CLEAR_AUTHENTIC" else RED if decision == "SUSPECT_TAMPERING" else ORANGE
+    if decision == "CLEAR_AUTHENTIC":
+        dec_color = GREEN
+    elif decision == "CRITICAL_FRAUD":
+        dec_color = RED
+    elif decision == "SUSPECT_TAMPERING":
+        dec_color = ORANGE
+    elif decision == "INSUFFICIENT_EVIDENCE":
+        dec_color = AMBER
+    else:
+        dec_color = TEXT_MUTED
+
     cv2.rectangle(card, (920, 8), (1260, 34), dec_color, -1)
     cv2.putText(card, f"DECISION: {decision[:18]}", (930, 26),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 0), 2, cv2.LINE_AA)
@@ -326,6 +336,13 @@ def _render_executive_summary_panel(
     fill_w = int(230 * attack_conf)
     cv2.rectangle(panel, (250, 62), (250 + fill_w, 76), att_col, -1)
 
+    # Multi-attack / Secondary Hypothesis Indicator
+    sec_attack = report.get("secondary_attack_guess")
+    if sec_attack and report.get("multi_attack_detected"):
+        sec_conf = float(report.get("secondary_attack_confidence") or 0.0)
+        cv2.putText(panel, f"+ Co-occurring: {sec_attack.upper()} ({sec_conf * 100:.0f}%)", (250, 90),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.36, AMBER, 1, cv2.LINE_AA)
+
     # Evidentiary Basis
     cv2.line(panel, (15, 96), (pw - 15, 96), BORDER_COLOR, 1)
     cv2.putText(panel, "HEURISTIC EVIDENTIARY BASIS:", (15, 118),
@@ -346,15 +363,19 @@ def _render_executive_summary_panel(
     rec_title = "SYSTEM ACTION RECOMMENDATION:"
     cv2.putText(panel, rec_title, (15, 302), cv2.FONT_HERSHEY_SIMPLEX, 0.42, TEXT_MUTED, 1, cv2.LINE_AA)
 
+    sev = report.get("fraud_severity", "MODERATE")
     if decision == "CLEAR_AUTHENTIC":
         rec_str = "[APPROVE] Credential cleared. No physical or logical fraud detected."
         r_col = GREEN
-    elif decision == "SUSPECT_TAMPERING":
-        rec_str = "[REJECT / ESCALATE] Credential shows corroborated tampering evidence."
+    elif decision == "CRITICAL_FRAUD":
+        rec_str = "[CRITICAL FRAUD REJECT] Multi-modal confirmed fraudulent credential."
         r_col = RED
+    elif decision == "SUSPECT_TAMPERING":
+        rec_str = f"[REJECT / ESCALATE ({sev})] Credential shows corroborated tampering evidence."
+        r_col = RED if sev in ["CRITICAL", "HIGH"] else ORANGE
     elif decision == "INSUFFICIENT_EVIDENCE":
         rec_str = "[REQUEST RESCAN] Image quality insufficient to confirm authenticity."
-        r_col = ORANGE
+        r_col = AMBER
     else:
         rec_str = "[SECONDARY REVIEW] Borderline anomaly requires human examiner review."
         r_col = AMBER

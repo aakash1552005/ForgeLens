@@ -10,6 +10,9 @@ quality:
   min_height: 400               # Minimum required vertical resolution
   min_ocr_confidence: 0.40      # Minimum average character confidence
   high_ocr_confidence: 0.75     # High confidence threshold for OCR
+  min_brightness: 20.0          # Pitch black / underexposed scan threshold
+  max_brightness: 245.0         # Washed out / overexposed glare threshold
+  min_contrast: 15.0            # Uniform gray canvas / low contrast threshold
   enable_quality_gating: true   # Route low quality scans to INSUFFICIENT_EVIDENCE
 
 spatial_correlation:
@@ -22,6 +25,8 @@ attack_heuristics:
   copy_move_min_matches: 15
   face_mismatch_distance_threshold: 0.40
   font_zscore_threshold: 2.50
+  critical_fraud_confidence_threshold: 0.75
+  multi_attack_threshold: 0.35
   confidence_weights:
     physical_tamper_weight: 0.45
     semantic_failure_weight: 0.35
@@ -31,6 +36,7 @@ attack_heuristics:
 
 decision_tiers:
   CLEAR_AUTHENTIC: "Document demonstrates consistent physical, optical, and semantic authenticity with high scan fidelity."
+  CRITICAL_FRAUD: "High-confidence multi-modal corroborated tampering detected (active forgery attack confirmed)."
   SUSPECT_TAMPERING: "Physical, typographic, biometric, or semantic evidence indicates localized credential manipulation."
   INSUFFICIENT_EVIDENCE: "Document scan exhibits insufficient optical quality, blur, or unreadable fields to support conclusive forensic analysis."
   REVIEW_RECOMMENDED: "Discrepancy detected under borderline or ambiguous conditions requiring human examiner secondary review."

@@ -99,13 +99,16 @@ def analyze_document_quality(
 ) -> Dict[str, Any]:
     """
     Assess optical document scan quality to prevent false fraud accusations.
-    Evaluates sharpness (Laplacian variance), dimensional resolution, and OCR confidence.
+    Evaluates sharpness (Laplacian variance), dimensional resolution, illumination
+    (mean brightness), contrast standard deviation, and OCR recognition confidence.
 
     Returns:
         {
             "blur_score": float,
             "resolution_ok": bool,
             "dimensions": [width, height],
+            "mean_brightness": float,
+            "contrast_std": float,
             "ocr_mean_confidence": float or null,
             "analysis_reliability": "HIGH" | "MEDIUM" | "LOW",
             "quality_flags": list of str
@@ -120,12 +123,17 @@ def analyze_document_quality(
     min_h = q_cfg.get("min_height", 400)
     min_ocr = q_cfg.get("min_ocr_confidence", 0.40)
     high_ocr = q_cfg.get("high_ocr_confidence", 0.75)
+    min_bright = q_cfg.get("min_brightness", 20.0)
+    max_bright = q_cfg.get("max_brightness", 245.0)
+    min_contrast = q_cfg.get("min_contrast", 15.0)
 
     if image_bgr is None or image_bgr.size == 0:
         return {
             "blur_score": 0.0,
             "resolution_ok": False,
             "dimensions": [0, 0],
+            "mean_brightness": 0.0,
+            "contrast_std": 0.0,
             "ocr_mean_confidence": 0.0,
             "analysis_reliability": "LOW",
             "quality_flags": ["EMPTY_OR_UNREADABLE_IMAGE"],
@@ -138,6 +146,10 @@ def analyze_document_quality(
     gray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY) if len(image_bgr.shape) == 3 else image_bgr
     laplacian_var = float(cv2.Laplacian(gray, cv2.CV_64F).var())
     blur_score = round(laplacian_var, 2)
+
+    # Compute illumination and contrast metrics
+    mean_bright = round(float(np.mean(gray)), 2)
+    contrast_std = round(float(np.std(gray)), 2)
 
     # Compute OCR confidence across recognized fields
     ocr_confs = []
@@ -160,13 +172,30 @@ def analyze_document_quality(
     if not resolution_ok:
         flags.append(f"LOW_RESOLUTION ({w}x{h} < {min_w}x{min_h})")
 
+    if mean_bright < min_bright:
+        flags.append(f"EXTREME_UNDEREXPOSURE (brightness={mean_bright} < {min_bright})")
+    elif mean_bright > max_bright:
+        flags.append(f"EXTREME_OVEREXPOSURE (brightness={mean_bright} > {max_bright})")
+
+    if contrast_std < min_contrast:
+        flags.append(f"INSUFFICIENT_CONTRAST (std={contrast_std} < {min_contrast})")
+
     if ocr_mean is not None and ocr_mean < min_ocr:
         flags.append(f"LOW_OCR_CONFIDENCE ({ocr_mean} < {min_ocr})")
 
     # Determine analysis reliability tier
-    if blur_score < min_blur or not resolution_ok or (ocr_mean is not None and ocr_mean < min_ocr):
+    is_critically_degraded = (
+        blur_score < min_blur
+        or not resolution_ok
+        or (ocr_mean is not None and ocr_mean < min_ocr)
+        or mean_bright < min_bright
+        or mean_bright > max_bright
+        or contrast_std < min_contrast
+    )
+
+    if is_critically_degraded:
         reliability = "LOW"
-    elif blur_score < med_blur or (ocr_mean is not None and ocr_mean < high_ocr):
+    elif blur_score < med_blur or (ocr_mean is not None and ocr_mean < high_ocr) or contrast_std < 25.0:
         reliability = "MEDIUM"
     else:
         reliability = "HIGH"
@@ -175,6 +204,8 @@ def analyze_document_quality(
         "blur_score": blur_score,
         "resolution_ok": resolution_ok,
         "dimensions": [int(w), int(h)],
+        "mean_brightness": mean_bright,
+        "contrast_std": contrast_std,
         "ocr_mean_confidence": ocr_mean,
         "analysis_reliability": reliability,
         "quality_flags": flags,
@@ -194,11 +225,14 @@ def correlate_suspicious_regions(
     face_res: Optional[Dict[str, Any]] = None,
     doc_shape: Optional[Tuple[int, int]] = None,
     config: Optional[Dict[str, Any]] = None,
+    mrz_data: Optional[Dict[str, Any]] = None,
+    mrz_viz_cross: Optional[Dict[str, Any]] = None,
+    metadata_audit: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Cross-reference detected physical and semantic anomalies with OCR field bboxes.
     Constructs standardized suspicious regions with exact bounding boxes, associated fields,
-    confidence metrics, and human-readable evidence.
+    all overlapping secondary fields, confidence metrics, and human-readable evidence.
     """
     if config is None:
         config = _load_m5_config()
@@ -208,12 +242,13 @@ def correlate_suspicious_regions(
 
     suspicious_regions = []
 
-    # Helper: Find overlapping field for a given bounding box
-    def _find_best_field(target_box: List[int]) -> Tuple[Optional[str], float]:
+    # Helper: Find overlapping fields for a given bounding box
+    def _find_best_field(target_box: List[int]) -> Tuple[Optional[str], float, List[str]]:
         if not target_box or len(target_box) < 4:
-            return None, 0.0
+            return None, 0.0, []
         best_f = None
         best_ratio = 0.0
+        all_overlapping = []
 
         for fname, fdata in fields.items():
             if fname.startswith("_") or not isinstance(fdata, dict):
@@ -228,16 +263,18 @@ def correlate_suspicious_regions(
             ratio_f = inter_area / f_area
             ratio_t = inter_area / t_area
             is_match = (ratio_f >= min_iofa) or (ratio_t >= 0.50 and ratio_f >= 0.10)
-            if is_match and ratio_f > best_ratio:
-                best_ratio = ratio_f
-                best_f = fname
+            if is_match:
+                all_overlapping.append(fname)
+                if ratio_f > best_ratio:
+                    best_ratio = ratio_f
+                    best_f = fname
 
-        return best_f, best_ratio
+        return best_f, best_ratio, all_overlapping
 
     # 1. ELA Physical Tamper Region
     if ela_candidate and ela_candidate.get("bbox"):
         e_box = ela_candidate["bbox"]
-        matched_f, overlap = _find_best_field(e_box)
+        matched_f, overlap, all_ov = _find_best_field(e_box)
         energy = float(ela_candidate.get("energy", 0.0))
         mean_anom = float(ela_candidate.get("mean_anomaly", 0.0))
         conf = min(0.98, round(0.40 + (energy / 200.0) * 0.50, 2))
@@ -255,8 +292,10 @@ def correlate_suspicious_regions(
             e_area = max(1, (e_box[2] - e_box[0]) * (e_box[3] - e_box[1]))
             if inside_photo or (p_inter / e_area >= 0.20) or (p_inter / p_area >= 0.15):
                 matched_f = "photo"
+                all_ov.append("photo")
 
         field_name = matched_f if matched_f else "unassigned_canvas"
+        ov_list = all_ov if all_ov else ([field_name] if field_name != "unassigned_canvas" else [])
         evidence_str = (
             f"Physical JPEG compression discontinuity (energy={energy:.1f}, mean={mean_anom:.2f})"
             + (f" directly overlapping field '{matched_f}' ({overlap*100:.1f}% coverage)" if matched_f else "")
@@ -266,6 +305,7 @@ def correlate_suspicious_regions(
             "source": "ela",
             "bbox": [int(x) for x in e_box],
             "field": field_name,
+            "overlapping_fields": ov_list,
             "confidence": conf,
             "evidence": evidence_str,
         })
@@ -278,20 +318,22 @@ def correlate_suspicious_regions(
         conf = min(0.99, round(float(copy_move_res.get("confidence", 0.85)), 2))
 
         if c_box:
-            matched_f, _ = _find_best_field(c_box)
+            matched_f, _, all_ov = _find_best_field(c_box)
             suspicious_regions.append({
                 "source": "copy_move",
                 "bbox": [int(x) for x in c_box],
                 "field": matched_f if matched_f else "cloned_motif_receiver",
+                "overlapping_fields": all_ov if all_ov else [matched_f or "cloned_motif_receiver"],
                 "confidence": conf,
                 "evidence": f"ORB-RANSAC duplicated motif candidate with {n_matches} inlier keypoint correspondences",
             })
         if alt_box:
-            matched_f, _ = _find_best_field(alt_box)
+            matched_f, _, all_ov = _find_best_field(alt_box)
             suspicious_regions.append({
                 "source": "copy_move",
                 "bbox": [int(x) for x in alt_box],
                 "field": matched_f if matched_f else "cloned_motif_source",
+                "overlapping_fields": all_ov if all_ov else [matched_f or "cloned_motif_source"],
                 "confidence": conf,
                 "evidence": f"Corresponding donor region for duplicated motif ({n_matches} keypoint matches)",
             })
@@ -308,6 +350,7 @@ def correlate_suspicious_regions(
                     "source": "typography",
                     "bbox": [int(x) for x in fbox],
                     "field": fname,
+                    "overlapping_fields": [fname],
                     "confidence": conf,
                     "evidence": f"Stroke-width transform outlier (|Z|={abs(z_score):.2f} > 2.50, mean={anom.get('field_mean_stroke', 0.0):.2f}px)",
                 })
@@ -337,6 +380,7 @@ def correlate_suspicious_regions(
                             "source": "semantic",
                             "bbox": [int(x) for x in tf_box],
                             "field": tf,
+                            "overlapping_fields": [tf],
                             "confidence": 0.90,
                             "evidence": f"Logical rule failure ({chk_name}): {detail}",
                         })
@@ -352,9 +396,49 @@ def correlate_suspicious_regions(
                 "source": "face",
                 "bbox": [int(x) for x in p_box] if p_box else default_photo_box,
                 "field": "photo",
+                "overlapping_fields": ["photo"],
                 "confidence": conf,
                 "evidence": f"Biometric face mismatch (distance={dist:.3f} > threshold={thresh:.3f}, similarity={face_res.get('similarity_pct', 0.0)}%)",
             })
+
+    # 6. MRZ Validation Anomaly
+    if mrz_data and mrz_data.get("status") == "FAIL":
+        h_dim = doc_shape[0] if doc_shape else 500
+        w_dim = doc_shape[1] if doc_shape else 800
+        mrz_box = [int(w_dim * 0.10), int(h_dim * 0.82), int(w_dim * 0.90), int(h_dim * 0.96)]
+        suspicious_regions.append({
+            "source": "mrz",
+            "bbox": mrz_box,
+            "field": "mrz",
+            "overlapping_fields": ["mrz"],
+            "confidence": 0.98,
+            "evidence": f"ICAO Doc 9303 Modulo-10 checksum failure: {mrz_data.get('verdict', 'Checksum Forgery')}",
+        })
+    elif mrz_viz_cross and mrz_viz_cross.get("verdict") == "VIZ_MRZ_CONTRADICTION_FRAUD":
+        h_dim = doc_shape[0] if doc_shape else 500
+        w_dim = doc_shape[1] if doc_shape else 800
+        mrz_box = [int(w_dim * 0.10), int(h_dim * 0.82), int(w_dim * 0.90), int(h_dim * 0.96)]
+        disc_str = "; ".join(mrz_viz_cross.get("discrepancies", ["Identity contradiction between VIZ and MRZ"]))
+        suspicious_regions.append({
+            "source": "mrz",
+            "bbox": mrz_box,
+            "field": "mrz",
+            "overlapping_fields": ["mrz"],
+            "confidence": 0.98,
+            "evidence": f"VIZ/MRZ Identity Contradiction: {disc_str}",
+        })
+
+    # 7. Metadata Provenance Editing Signature
+    if metadata_audit and metadata_audit.get("is_tampered"):
+        sw = metadata_audit.get("software") or metadata_audit.get("software_detected") or "Editing Software"
+        suspicious_regions.append({
+            "source": "metadata",
+            "bbox": [0, 0, int(doc_shape[1]) if doc_shape else 800, 30],
+            "field": "file_provenance",
+            "overlapping_fields": ["provenance"],
+            "confidence": 0.85,
+            "evidence": f"Image metadata provenance indicates editing software signature: {sw}",
+        })
 
     return suspicious_regions
 
@@ -542,6 +626,107 @@ def classify_attack_heuristic(
     return attack_guess, attack_conf, basis, decision
 
 
+def compute_attack_hypotheses_and_severity(
+    tamper_signals: Dict[str, Any],
+    semantic_checks: List[Dict[str, Any]],
+    font_audit: Optional[Dict[str, Any]],
+    face_verification: Dict[str, Any],
+    suspicious_regions: List[Dict[str, Any]],
+    attack_guess: str,
+    attack_conf: float,
+    config: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Rank candidate attack hypotheses, detect multi-attack scenarios,
+    and establish forensic fraud severity (CRITICAL, HIGH, MODERATE, NONE).
+    """
+    if config is None:
+        config = _load_m5_config()
+    ah_cfg = config.get("attack_heuristics", {})
+    sec_th = ah_cfg.get("multi_attack_threshold", 0.35)
+
+    scores = {
+        "date_edit": 0.0,
+        "text_edit": 0.0,
+        "photo_swap": 0.0,
+        "copy_move": 0.0,
+    }
+
+    # 1. Copy-Move
+    cm = tamper_signals.get("copy_move", {})
+    if cm.get("detected") and cm.get("num_matches", 0) >= ah_cfg.get("copy_move_min_matches", 15):
+        scores["copy_move"] += 0.85 + 0.15 * min(float(cm.get("confidence") or 0.85) / 0.50, 1.0)
+
+    # 2. Suspicious regions
+    for s_reg in suspicious_regions:
+        f = s_reg.get("field", "")
+        conf = float(s_reg.get("confidence", 0.70))
+        if f in ["dob", "issue_date", "expiry_date"]:
+            scores["date_edit"] += 0.65 * conf
+        elif f in ["name", "document_number", "country", "nationality"]:
+            scores["text_edit"] += 0.65 * conf
+        elif f == "photo":
+            scores["photo_swap"] += 0.75 * conf
+
+    # 3. Semantic checks
+    for chk in semantic_checks:
+        if chk.get("status") == "FAIL":
+            cn = chk.get("check")
+            if cn in ["impossible_dates", "chronology_order", "age_at_issue_sanity", "validity_window_sanity", "anachronism_check"]:
+                scores["date_edit"] += 0.60
+            elif cn in ["document_number_format", "name_structure_sanity", "country_code_sanity", "duplicate_field_contradiction"]:
+                scores["text_edit"] += 0.60
+
+    # 4. Typography
+    if font_audit and font_audit.get("typography_verdict") == "SUSPECT_FONT_INCONSISTENCY":
+        scores["text_edit"] += 0.50
+
+    # 5. Face verification
+    if face_verification.get("has_face_check") and face_verification.get("verified") is False:
+        scores["photo_swap"] += 0.80
+
+    ranked = [
+        {"attack_type": k, "score": round(float(v), 3)}
+        for k, v in sorted(scores.items(), key=lambda x: x[1], reverse=True)
+        if v >= 0.15
+    ]
+
+    other_attacks = [item for item in ranked if item["attack_type"] != attack_guess]
+    secondary = other_attacks[0] if other_attacks else None
+    sec_guess = secondary["attack_type"] if secondary and secondary["score"] >= sec_th else None
+    sec_conf = round(float(min(0.95, secondary["score"] * 0.90)), 2) if sec_guess else None
+    multi_attack = bool(sec_guess and secondary["score"] >= (sec_th + 0.05))
+
+    # Fraud severity
+    has_corroboration = (
+        any(chk.get("status") == "FAIL" for chk in semantic_checks)
+        or (font_audit and font_audit.get("typography_verdict") == "SUSPECT_FONT_INCONSISTENCY")
+        or (cm.get("detected") is True)
+        or (face_verification.get("has_face_check") and face_verification.get("verified") is False)
+    )
+
+    if attack_guess == "none":
+        severity = "NONE"
+    elif (
+        (attack_guess == "photo_swap" and face_verification.get("has_face_check") and face_verification.get("verified") is False and (face_verification.get("distance") or 0.0) >= 0.45)
+        or (attack_guess == "copy_move" and cm.get("num_matches", 0) >= 30)
+        or (attack_guess in ["date_edit", "text_edit"] and has_corroboration and attack_conf >= 0.80)
+    ):
+        severity = "CRITICAL"
+    elif attack_conf >= 0.60 or has_corroboration:
+        severity = "HIGH"
+    else:
+        severity = "MODERATE"
+
+    return {
+        "secondary_attack_guess": sec_guess,
+        "secondary_attack_confidence": sec_conf,
+        "multi_attack_detected": multi_attack,
+        "attack_hypotheses_ranked": ranked,
+        "fraud_severity": severity,
+    }
+
+
 # ---------------------------------------------------------------------------
 # 4. Turnkey Feature Vector for Milestone 6 Machine Learning
 # ---------------------------------------------------------------------------
@@ -612,8 +797,20 @@ def extract_m6_feature_vector(report: Dict[str, Any]) -> Dict[str, float]:
     f_vec["quality_resolution_ok"] = 1.0 if qual.get("resolution_ok") else 0.0
     f_vec["quality_ocr_confidence"] = float(qual.get("ocr_mean_confidence") or 0.0)
     f_vec["quality_is_low_reliability"] = 1.0 if qual.get("analysis_reliability") == "LOW" else 0.0
+    f_vec["quality_mean_brightness"] = float(qual.get("mean_brightness", 128.0)) / 255.0
+    f_vec["quality_contrast_std"] = min(1.0, float(qual.get("contrast_std", 50.0)) / 100.0)
 
-    # 9. Suspicious Regions Count
+    # 9. Multi-Attack & Hypothesis Ranking
+    f_vec["multi_attack_detected"] = 1.0 if report.get("multi_attack_detected") else 0.0
+    f_vec["secondary_attack_confidence"] = float(report.get("secondary_attack_confidence") or 0.0)
+    f_vec["primary_attack_confidence"] = float(report.get("attack_type_confidence") or 0.0)
+
+    # 10. MRZ VIZ Cross-Validation Contradiction
+    mrz_obj = report.get("mrz", {})
+    viz_c = mrz_obj.get("viz_cross", {}) if isinstance(mrz_obj, dict) else {}
+    f_vec["mrz_viz_contradiction_flag"] = 1.0 if viz_c and viz_c.get("verdict") == "VIZ_MRZ_CONTRADICTION_FRAUD" else 0.0
+
+    # 11. Suspicious Regions Count
     f_vec["suspicious_regions_count"] = float(len(report.get("suspicious_regions", [])))
 
     return f_vec
@@ -651,6 +848,8 @@ def generate_unified_forensic_report(
                 "blur_score": 0.0,
                 "resolution_ok": False,
                 "dimensions": [0, 0],
+                "mean_brightness": 0.0,
+                "contrast_std": 0.0,
                 "ocr_mean_confidence": None,
                 "analysis_reliability": "LOW",
                 "quality_flags": ["FILE_NOT_FOUND_OR_CORRUPT"],
@@ -666,6 +865,11 @@ def generate_unified_forensic_report(
             "attack_type_guess": "none",
             "attack_type_confidence": 0.0,
             "attack_type_basis": ["Document image file could not be read."],
+            "secondary_attack_guess": None,
+            "secondary_attack_confidence": None,
+            "multi_attack_detected": False,
+            "attack_hypotheses_ranked": [],
+            "fraud_severity": "NONE",
             "risk_score": None,
             "fraud_probability": None,
             "decision": "INSUFFICIENT_EVIDENCE",
@@ -804,6 +1008,9 @@ def generate_unified_forensic_report(
         face_res=face_verification,
         doc_shape=img_bgr.shape[:2],
         config=config,
+        mrz_data=mrz_data,
+        mrz_viz_cross=mrz_viz_cross,
+        metadata_audit=metadata_audit,
     )
 
     # -----------------------------------------------------------------------
@@ -817,6 +1024,17 @@ def generate_unified_forensic_report(
         suspicious_regions=suspicious_regions,
         quality=quality,
         metadata_audit=metadata_audit,
+        config=config,
+    )
+
+    hypo_info = compute_attack_hypotheses_and_severity(
+        tamper_signals=tamper_signals,
+        semantic_checks=semantic_checks,
+        font_audit=font_audit,
+        face_verification=face_verification,
+        suspicious_regions=suspicious_regions,
+        attack_guess=attack_guess,
+        attack_conf=attack_conf,
         config=config,
     )
 
@@ -835,6 +1053,11 @@ def generate_unified_forensic_report(
         "attack_type_guess": attack_guess,
         "attack_type_confidence": attack_conf,
         "attack_type_basis": attack_basis,
+        "secondary_attack_guess": hypo_info["secondary_attack_guess"],
+        "secondary_attack_confidence": hypo_info["secondary_attack_confidence"],
+        "multi_attack_detected": hypo_info["multi_attack_detected"],
+        "attack_hypotheses_ranked": hypo_info["attack_hypotheses_ranked"],
+        "fraud_severity": hypo_info["fraud_severity"],
         "risk_score": None,          # Reserved for Milestone 6 ML regression
         "fraud_probability": None,   # Reserved for Milestone 6 ML regression
         "decision": decision,

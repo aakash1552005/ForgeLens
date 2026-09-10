@@ -318,8 +318,8 @@ def run_unified_m5_benchmark(
     # False Rejection Rate (genuine docs incorrectly flagged as tampering)
     frr = sum(1 for r in genuine_records if r["is_false_alarm"]) / max(1, len(genuine_records))
 
-    # Tamper Detection Rate (tampered docs caught as SUSPECT_TAMPERING)
-    tpr = sum(1 for r in tampered_records if r["decision"] == "SUSPECT_TAMPERING") / max(1, len(tampered_records))
+    # Tamper Detection Rate (tampered docs caught as SUSPECT_TAMPERING or CRITICAL_FRAUD)
+    tpr = sum(1 for r in tampered_records if r["decision"] in ["SUSPECT_TAMPERING", "CRITICAL_FRAUD"]) / max(1, len(tampered_records))
 
     # Attack classification accuracy
     attack_acc = sum(1 for r in all_records if r["is_correct_attack"]) / max(1, total_docs)
