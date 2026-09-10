@@ -1380,10 +1380,11 @@ def main():
     # unified-screen
     us_parser = subparsers.add_parser("unified-screen", help="Run full multi-modal forensic screening (M1-M4) producing unified M5 report")
     us_parser.add_argument("image", type=str, help="Path to identity document image")
-    us_parser.add_argument("--face", type=str, default=None, help="Optional path to reference live face selfie photo")
+    us_parser.add_argument("--face", "--selfie", dest="face", type=str, default=None, help="Optional path to reference live face selfie photo")
     us_parser.add_argument("--doc-type", type=str, default="forgelensia", choices=["forgelensia", "passport", "generic_id"], help="Document credential schema")
     us_parser.add_argument("--output", type=str, default=None, help="Output path for master 4-panel diagnostic card")
     us_parser.add_argument("--json", type=str, default=None, help="Output path to export unified JSON report contract")
+    us_parser.add_argument("--no-card", action="store_false", dest="card", default=True, help="Disable visual diagnostic card generation")
 
     # unified-eval
     ue_parser = subparsers.add_parser("unified-eval", help="Evaluate unified report accuracy, quality gating, and attack classification")

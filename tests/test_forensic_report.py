@@ -303,3 +303,27 @@ def test_cli_unified_screen_command(tmp_path, monkeypatch, capsys):
     assert os.path.exists(out_card)
     assert os.path.exists(out_json)
 
+
+def test_cli_unified_screen_selfie_flag(tmp_path, monkeypatch, capsys):
+    """Verify CLI unified-screen command supports --selfie alias alongside --face."""
+    from src.cli import main
+
+    test_img = str(tmp_path / "cli_test_doc.jpg")
+    img = np.full((650, 1000, 3), 240, dtype=np.uint8)
+    cv2.putText(img, "FORGELENSIA TEST DOC", (100, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+    cv2.imwrite(test_img, img)
+
+    test_selfie = str(tmp_path / "cli_selfie.jpg")
+    selfie = np.full((300, 300, 3), 180, dtype=np.uint8)
+    cv2.imwrite(test_selfie, selfie)
+
+    monkeypatch.setattr(
+        "sys.argv",
+        ["forgelens-m1", "unified-screen", test_img, "--selfie", test_selfie, "--no-card"],
+    )
+    main()
+
+    captured = capsys.readouterr()
+    assert "Milestone 5: Unified Forensic Screening" in captured.out
+    assert "Reference Face:" in captured.out
+
