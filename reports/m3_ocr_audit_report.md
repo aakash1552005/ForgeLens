@@ -1,6 +1,6 @@
 # ForgeLens-X — Milestone 3 Forensic Audit Report
 ## Optical Character Recognition (OCR), Structured Field Extraction & MIDV-500 Benchmark
-**Audit Execution Timestamp:** `2026-09-10 16:39:09 UTC`  
+**Audit Execution Timestamp:** `2026-09-10 17:00:19 UTC`  
 **Status:** Complete & Formally Verified  
 **Compliance:** Strict Dataset Isolation, Zero Hallucinated Metrics, Zero-Crash Exception Policy
 
@@ -21,7 +21,7 @@ Milestone 3 establishes the structured text extraction and identity document par
 - **Evaluated Documents:** 15
 - **Evaluated Structured Fields:** 75
 - **OCR Engine:** `rapidocr`
-- **Mean Latency per Document:** `702.6` ms
+- **Mean Latency per Document:** `765.3` ms
 - **Overall Character Error Rate (CER):** `0.0000`
 - **Overall Edit Similarity:** `100.00%`
 - **Overall Exact Match Rate:** `100.00%`
@@ -40,7 +40,7 @@ Milestone 3 establishes the structured text extraction and identity document par
 - **Evaluated Documents/Frames:** 15
 - **Evaluated Structured Fields:** 75
 - **OCR Engine:** `rapidocr`
-- **Mean Latency per Document:** `635.0` ms
+- **Mean Latency per Document:** `798.3` ms
 - **Overall Character Error Rate (CER):** `0.0150`
 - **Overall Edit Similarity:** `98.50%`
 - **Overall Exact Match Rate:** `80.00%`
@@ -55,11 +55,23 @@ Milestone 3 establishes the structured text extraction and identity document par
 | `expiry_date` | 15 | 15 | 100.0% | 100.0% | 0.0000 | 0.8481 |
 
 ---
-### 5. Zero-Leakage Source-Clip Partitioning Validation
+### 5. Multi-Condition Optical Degradation & Robustness Profiling
+Evaluation of optical character recognition resilience across systematic sensor degradations (Gaussian defocus blur, flash/overhead specular glare, low-light underexposure, and resolution downsampling):
+
+| Degradation Condition | Evaluated Fields | Exact Match % | Edit Similarity % | CER | Mean Latency |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Baseline** | 25 | 100.0% | 100.0% | 0.0000 | 592.4 ms |
+| **Gaussian Blur** | 25 | 60.0% | 72.9% | 0.3380 | 1006.5 ms |
+| **Specular Glare** | 25 | 100.0% | 100.0% | 0.0000 | 537.4 ms |
+| **Underexposure** | 25 | 100.0% | 100.0% | 0.0000 | 563.3 ms |
+| **Downsampling** | 25 | 48.0% | 63.9% | 0.5213 | 820.5 ms |
+
+---
+### 6. Zero-Leakage Source-Clip Partitioning Validation
 > [!IMPORTANT]
 > **Forensic Partitioning Guarantee:** In real-world video benchmarks such as MIDV-500, frames from the same > physical document or recording clip share visual lighting, sensor noise, perspective distortions, and exact field values. > ForgeLens-X enforces strict source-clip partitioning (`split_midv500_by_source_clip`). > All frames belonging to a single source clip are restricted to a single partition (`train`, `cal`, or `test`). > Under zero circumstances do frames from the same document cross split boundaries.
 
-### 6. Error & Failure Mode Analysis
+### 7. Error & Failure Mode Analysis
 1. **Low Confidence Triage:** Fields yielding confidence scores $< 0.50$ (or unrecognized regions) are flagged `status="LOW_CONFIDENCE"` or `status="UNKNOWN"` with `value=None`. The system NEVER fabricates hallucinated values.
 2. **Zero-Crash Resilience:** Corrupted image streams, blank pages, extreme perspective rotations, and zero-text inputs consistently return valid schema representations without raising unhandled runtime exceptions.
 3. **Non-Punitive Missing Fields:** A missing or illegible field does not trigger an immediate fraud determination; it is routed for secondary manual forensic inspection.

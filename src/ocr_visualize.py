@@ -69,7 +69,7 @@ FIELD_COLORS = {
 
 def _render_document_canvas_panel(
     doc_bgr: np.ndarray,
-    extracted_fields: Dict[str, Any],
+    extracted_res: Dict[str, Any],
     target_size: Tuple[int, int] = (PANEL_WIDTH, PANEL_HEIGHT),
 ) -> np.ndarray:
     """Render document canvas with spatial overlay of extracted field bounding boxes."""
@@ -94,6 +94,13 @@ def _render_document_canvas_panel(
     dh, dw = doc_bgr.shape[:2]
     annotated = doc_bgr.copy()
 
+    if "fields" in extracted_res:
+        extracted_fields = extracted_res.get("fields", {})
+        tamper_map = extracted_res.get("tamper_correlation", {}).get("tampered_fields", {})
+    else:
+        extracted_fields = extracted_res
+        tamper_map = {}
+
     # Draw bboxes for each field
     for field_name, f_info in extracted_fields.items():
         bbox = f_info.get("bbox")
@@ -109,15 +116,22 @@ def _render_document_canvas_panel(
         x2 = max(0, min(dw, int(x2)))
         y2 = max(0, min(dh, int(y2)))
 
-        color = FIELD_COLORS.get(field_name, (200, 200, 200))
-        if status == "UNKNOWN":
+        is_tampered = tamper_map.get(field_name, {}).get("is_tampered", False)
+
+        if is_tampered:
+            color = MISMATCH_RED
+            lbl = f"{field_name[:4].upper()} [ALERT]"
+        elif status == "UNKNOWN":
             color = (100, 100, 100)
+            lbl = f"{field_name[:4].upper()}"
+        else:
+            color = FIELD_COLORS.get(field_name, (200, 200, 200))
+            lbl = f"{field_name[:4].upper()}"
 
         # Draw bbox
-        cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
+        cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 3 if is_tampered else 2)
 
         # Small label tag
-        lbl = f"{field_name[:4].upper()}"
         (tw, th), _ = cv2.getTextSize(lbl, cv2.FONT_HERSHEY_SIMPLEX, 0.38, 1)
         tag_y1 = max(0, y1 - th - 6)
         cv2.rectangle(annotated, (x1, tag_y1), (x1 + tw + 6, tag_y1 + th + 6), (20, 30, 48), -1)
@@ -263,11 +277,11 @@ def _render_crops_gallery_panel(
 # ---------------------------------------------------------------------------
 
 def _render_metrics_panel(
-    extracted_fields: Dict[str, Any],
+    extracted_res: Dict[str, Any],
     ground_truth: Optional[Dict[str, Any]] = None,
     target_size: Tuple[int, int] = (PANEL_WIDTH, PANEL_HEIGHT),
 ) -> np.ndarray:
-    """Render confidence bar gauges and CER/edit distance metrics."""
+    """Render confidence bar gauges and CER/edit distance metrics with chronology status."""
     pw, ph = target_size
     canvas = np.zeros((ph, pw, 3), dtype=np.uint8)
     canvas[:] = PANEL_BG
@@ -279,6 +293,13 @@ def _render_metrics_panel(
         canvas, title,
         (15, 24), cv2.FONT_HERSHEY_SIMPLEX, 0.50, TEXT_WHITE, 1, cv2.LINE_AA
     )
+
+    if "fields" in extracted_res:
+        extracted_fields = extracted_res.get("fields", {})
+        chron = extracted_res.get("chronology_audit", {})
+    else:
+        extracted_fields = extracted_res
+        chron = {}
 
     fields_order = ["name", "dob", "document_number", "issue_date", "expiry_date"]
     field_labels = {
@@ -293,11 +314,11 @@ def _render_metrics_panel(
     if ground_truth:
         eval_results = evaluate_field_extraction(extracted_fields, ground_truth)
 
-    start_y = 52
-    row_height = 56
+    start_y = 50
+    row_height = 54
     gauge_x = 110
     gauge_w = 260
-    gauge_h = 16
+    gauge_h = 15
 
     for idx, f_name in enumerate(fields_order):
         f_info = extracted_fields.get(f_name, {})
@@ -310,7 +331,7 @@ def _render_metrics_panel(
         # Label
         lbl = field_labels.get(f_name, f_name)
         cv2.putText(
-            canvas, lbl, (15, row_y + 14),
+            canvas, lbl, (15, row_y + 13),
             cv2.FONT_HERSHEY_SIMPLEX, 0.40, color, 1, cv2.LINE_AA
         )
 
@@ -331,12 +352,12 @@ def _render_metrics_panel(
         # Confidence percentage text
         pct_text = f"{conf * 100:.1f}%"
         cv2.putText(
-            canvas, pct_text, (gauge_x + gauge_w + 10, row_y + 13),
+            canvas, pct_text, (gauge_x + gauge_w + 10, row_y + 12),
             cv2.FONT_HERSHEY_SIMPLEX, 0.40, TEXT_WHITE, 1, cv2.LINE_AA
         )
 
         # Secondary row info (CER / Match or Extraction details)
-        info_y = row_y + 30
+        info_y = row_y + 28
         if ground_truth and f_name in eval_results:
             ev = eval_results[f_name]
             cer = ev.get("cer", 0.0)
@@ -348,22 +369,24 @@ def _render_metrics_panel(
 
             cv2.putText(
                 canvas, em_str, (gauge_x, info_y),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.36, em_col, 1, cv2.LINE_AA
+                cv2.FONT_HERSHEY_SIMPLEX, 0.35, em_col, 1, cv2.LINE_AA
             )
             cv2.putText(
-                canvas, f"CER: {cer:.3f} | Sim: {sim * 100:.1f}%", (gauge_x + 95, info_y),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.36, TEXT_MUTED, 1, cv2.LINE_AA
+                canvas, f"CER: {cer:.3f} | Sim: {sim * 100:.1f}%", (gauge_x + 90, info_y),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.35, TEXT_MUTED, 1, cv2.LINE_AA
             )
         else:
             cv2.putText(
                 canvas, f"Threshold: 50.0% | Status: {status}", (gauge_x, info_y),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.36, TEXT_MUTED, 1, cv2.LINE_AA
+                cv2.FONT_HERSHEY_SIMPLEX, 0.35, TEXT_MUTED, 1, cv2.LINE_AA
             )
 
-    # Threshold indicator note at bottom
+    # Date Chronology indicator at bottom
+    chron_status = chron.get("status", "VALID")
+    chron_col = MATCH_GREEN if chron.get("chronology_valid", True) else MISMATCH_RED
     cv2.putText(
-        canvas, "White line indicates acceptance threshold (0.50). Green = High, Amber = Mid, Red = Low.",
-        (15, ph - 14), cv2.FONT_HERSHEY_SIMPLEX, 0.34, TEXT_MUTED, 1, cv2.LINE_AA
+        canvas, f"Date Chronology Audit: {chron_status}",
+        (15, ph - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.36, chron_col, 1, cv2.LINE_AA
     )
 
     return canvas
@@ -393,6 +416,10 @@ def _render_verdict_panel(
     extracted_fields = extracted_res.get("fields", {})
     engine = extracted_res.get("engine", "rapidocr")
     doc_type = extracted_res.get("document_type", "identity_card")
+    tamper_corr = extracted_res.get("tamper_correlation", {})
+    tamper_cnt = tamper_corr.get("tampered_fields_count", 0)
+    mrz_res = extracted_res.get("mrz_data")
+    chron_res = extracted_res.get("chronology_audit", {})
 
     # Assess overall extraction state
     total_fields = 5
@@ -404,10 +431,20 @@ def _render_verdict_panel(
     mean_conf = float(np.mean(confs)) if confs else 0.0
 
     # Decision Badge
-    badge_x, badge_y = 35, 52
-    badge_w, badge_h = 510, 56
+    badge_x, badge_y = 35, 50
+    badge_w, badge_h = 510, 54
 
-    if extracted_count == total_fields and mean_conf >= 0.70:
+    if tamper_cnt > 0:
+        badge_bg = MISMATCH_BG
+        badge_border = MISMATCH_RED
+        badge_text = f"CRITICAL ALERT: {tamper_cnt} FIELD(S) TAMPERED"
+        text_color = (255, 255, 255)
+    elif not chron_res.get("chronology_valid", True):
+        badge_bg = MISMATCH_BG
+        badge_border = MISMATCH_RED
+        badge_text = f"CHRONOLOGY FRAUD: {chron_res.get('status', 'INVALID')}"
+        text_color = (255, 255, 255)
+    elif extracted_count == total_fields and mean_conf >= 0.70:
         badge_bg = MATCH_BG
         badge_border = MATCH_GREEN
         badge_text = "ALL FIELDS EXTRACTED (HIGH FIDELITY)"
@@ -427,43 +464,53 @@ def _render_verdict_panel(
     cv2.rectangle(canvas, (badge_x, badge_y), (badge_x + badge_w, badge_y + badge_h), badge_border, 2)
     cv2.putText(
         canvas, badge_text,
-        (badge_x + 20, badge_y + 36), cv2.FONT_HERSHEY_SIMPLEX, 0.58, text_color, 2, cv2.LINE_AA
+        (badge_x + 18, badge_y + 35), cv2.FONT_HERSHEY_SIMPLEX, 0.56, text_color, 2, cv2.LINE_AA
     )
 
     # Key-Value Audit Table
-    start_y = 135
-    row_h = 24
+    start_y = 125
+    row_h = 22
     kx = 45
     vx = 260
 
     rows = [
         ("OCR Engine:", f"{engine.upper()} (PaddleOCR ONNX / PyTesseract)"),
         ("Document Schema:", doc_type.replace("_", " ").title()),
-        ("Target Fields:", f"{total_fields} Canonical Fields"),
-        ("Extracted Successfully:", f"{extracted_count} / {total_fields}"),
-        ("Low Confidence / Ambiguous:", f"{low_conf_count}"),
-        ("Missing / Unknown:", f"{unknown_count}"),
+        ("Extracted Successfully:", f"{extracted_count} / {total_fields} Canonical Fields"),
         ("Mean Field Confidence:", f"{mean_conf * 100:.2f}%"),
     ]
+
+    if tamper_cnt > 0:
+        t_names = ", ".join(tamper_corr.get("tampered_field_names", []))
+        rows.append(("Tamper Overlap:", f"DETECTED on {t_names}"))
+    else:
+        rows.append(("Tamper Overlap:", "CLEAN (Zero Tamper Intersection)"))
+
+    rows.append(("Date Chronology:", f"{chron_res.get('status', 'VALID')}"))
+
+    if mrz_res:
+        m_valid = mrz_res.get("checksums", {}).get("all_valid", False)
+        m_fmt = mrz_res.get("format", "TD1")
+        rows.append(("MRZ Checksums:", f"{m_fmt} Checksums {'VALID' if m_valid else 'INVALID'}"))
 
     if ground_truth:
         ev_map = evaluate_field_extraction(extracted_fields, ground_truth)
         cers = [ev["cer"] for ev in ev_map.values() if ev["ground_truth"]]
         mean_cer = float(np.mean(cers)) if cers else 0.0
-        exact_matches = sum(1 for ev in ev_map.values() if ev["exact_match"] and ev["ground_truth"])
-        rows.append(("Mean Character Error Rate (CER):", f"{mean_cer:.4f} (Target <= 0.1500)"))
-        rows.append(("Exact Match Accuracy:", f"{exact_matches} / {len(cers)} fields"))
+        rows.append(("Character Error Rate:", f"{mean_cer:.4f} (Target <= 0.1500)"))
 
     for i, (k, v) in enumerate(rows):
         cy = start_y + (i * row_h)
-        cv2.putText(canvas, k, (kx, cy), cv2.FONT_HERSHEY_SIMPLEX, 0.40, TEXT_MUTED, 1, cv2.LINE_AA)
+        cv2.putText(canvas, k, (kx, cy), cv2.FONT_HERSHEY_SIMPLEX, 0.38, TEXT_MUTED, 1, cv2.LINE_AA)
         val_color = TEXT_WHITE
-        if "CER" in k:
-            val_color = MATCH_GREEN if "Target <=" in v and float(v.split()[0]) <= 0.15 else BORDERLINE_AMBER
-        cv2.putText(canvas, v, (vx, cy), cv2.FONT_HERSHEY_SIMPLEX, 0.40, val_color, 1, cv2.LINE_AA)
+        if "DETECTED on" in v or "INVALID" in v:
+            val_color = MISMATCH_RED
+        elif "CLEAN" in v or "VALID" in v:
+            val_color = MATCH_GREEN
+        cv2.putText(canvas, v, (vx, cy), cv2.FONT_HERSHEY_SIMPLEX, 0.38, val_color, 1, cv2.LINE_AA)
 
     # Forensic Compliance Note
-    note_y = ph - 18
+    note_y = ph - 16
     cv2.putText(
         canvas, "Forensic screening rule: Missing fields route to human inspection, not automatic fraud.",
         (15, note_y), cv2.FONT_HERSHEY_SIMPLEX, 0.33, TEXT_MUTED, 1, cv2.LINE_AA
@@ -569,9 +616,9 @@ def generate_ocr_diagnostic_card(
     _render_header_banner(canvas, doc_name, actual_engine, now_str)
 
     # 6. Render individual panels
-    p1 = _render_document_canvas_panel(doc_bgr, extracted_fields)
+    p1 = _render_document_canvas_panel(doc_bgr, extracted_res)
     p2 = _render_crops_gallery_panel(doc_bgr, extracted_fields)
-    p3 = _render_metrics_panel(extracted_fields, ground_truth=ground_truth)
+    p3 = _render_metrics_panel(extracted_res, ground_truth=ground_truth)
     p4 = _render_verdict_panel(extracted_res, ground_truth=ground_truth)
 
     # 7. Position panels on canvas (2x2 grid)
@@ -625,6 +672,7 @@ def batch_generate_ocr_cards(
             continue
 
         raw_ext = item.get("raw_extracted", {})
+        full_ext = item.get("extracted") or {"fields": raw_ext, "engine": "rapidocr", "document_type": "identity_card"}
         gt_dict = {}
         for f, res in item.get("evaluations", {}).items():
             gt_dict[f] = res.get("ground_truth", "")
@@ -635,7 +683,7 @@ def batch_generate_ocr_cards(
         try:
             saved = generate_ocr_diagnostic_card(
                 image_input=img_path,
-                extracted_res={"fields": raw_ext, "engine": "rapidocr", "document_type": "identity_card"},
+                extracted_res=full_ext,
                 ground_truth=gt_dict,
                 output_path=out_path,
             )

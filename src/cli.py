@@ -857,6 +857,40 @@ def cmd_ocr(args):
 
         print(f"{field_name:<18} | {val:<24} | {conf*100:>5.1f}% | {status:<15} | {bbox_str}")
 
+    # Forensic Auditing Details
+    chron = res.get("chronology_audit", {})
+    if chron:
+        print("\nDATE CHRONOLOGY AUDIT:")
+        c_status = chron.get("status", "VALID")
+        c_badge = "[PASS]" if chron.get("chronology_valid", True) else "[FRAUD DETECTED]"
+        print(f"  • Overall Status:     {c_badge} {c_status}")
+        if "age_at_issue_years" in chron and chron["age_at_issue_years"] is not None:
+            print(f"  • Age at Issue:       {chron['age_at_issue_years']:.1f} years")
+        if "validity_years" in chron and chron["validity_years"] is not None:
+            print(f"  • Validity Window:    {chron['validity_years']:.1f} years")
+        for err in chron.get("errors", []):
+            print(f"  [!] Chronology Violation: {err}")
+
+    mrz = res.get("mrz_data")
+    if mrz:
+        print("\nICAO DOC 9303 MRZ PARSER & CHECKSUM VERIFICATION:")
+        all_chk = mrz.get("checksums", {}).get("all_valid", False)
+        m_badge = "[PASS]" if all_chk else "[FAIL]"
+        print(f"  • MRZ Format:         {mrz.get('format', 'TD1')}")
+        print(f"  • Checksums:          {m_badge} {'All 3 Checksums Verified' if all_chk else 'Checksum Mismatch'}")
+        if "viz_cross_validation" in mrz:
+            xv = mrz["viz_cross_validation"]
+            print(f"  • VIZ-to-MRZ Match:   {xv.get('overall_viz_mrz_match')}")
+
+    tamper = res.get("tamper_correlation", {})
+    if tamper and tamper.get("tampered_fields_count", 0) > 0:
+        print("\n[CRITICAL FORENSIC ALERT] TAMPER-FIELD SPATIAL OVERLAP:")
+        for t_name in tamper.get("tampered_field_names", []):
+            t_detail = tamper.get("tampered_fields", {}).get(t_name, {})
+            print(f"  • Field '{t_name}' directly overlaps with tamper anomaly ({t_detail.get('overlap_type')}, IoU/Overlap={t_detail.get('tamper_overlap_area', 0)} px)")
+    elif tamper:
+        print("\nTAMPER CORRELATION: CLEAN (No field overlaps with physical manipulation)")
+
     # Generate Visual Diagnostic Card
     out_path = args.output
     if not out_path:
@@ -946,11 +980,40 @@ def cmd_ocr_eval(args):
             print(f"    - Mean Similarity:     {m_ov.get('mean_edit_similarity', 0)*100:.1f}%")
             print(f"    - Exact Match Rate:    {m_ov.get('exact_match_rate', 0)*100:.1f}%")
 
-    # 3. Export Comprehensive Forensic Reports
-    print("\n[STEP 3] Exporting Forensic Audit Reports...")
+    # 3. Multi-Condition Optical Stress Testing (Optional)
+    robust_report = None
+    if getattr(args, "stress_test", False):
+        from src.ocr_evaluate import evaluate_ocr_robustness
+        print("\n[STEP 3] Running Multi-Condition Optical Stress-Testing (Defocus Blur, Glare, Underexposure, Downsampling)...")
+        stress_samples = []
+        if synth_report and "eval_synth_items" in locals() and eval_synth_items:
+            stress_samples.extend(eval_synth_items[:8])
+        elif midv_report and "eval_midv_items" in locals() and eval_midv_items:
+            stress_samples.extend(eval_midv_items[:8])
+
+        if stress_samples:
+            robust_report = evaluate_ocr_robustness(
+                samples=stress_samples,
+                ocr_engine=args.engine,
+            )
+            print("-" * 75)
+            print(f"{'Condition':<20} | {'Mean CER':<10} | {'CER Delta':<11} | {'Degradation':<12} | {'Exact Match'}")
+            print("-" * 75)
+            for c_name, c_res in robust_report.get("stress_conditions", {}).items():
+                c_cer = c_res.get("mean_cer", 0.0)
+                c_delta = c_res.get("cer_delta_vs_baseline", 0.0)
+                c_deg = c_res.get("cer_degradation_pct", 0.0)
+                c_em = c_res.get("exact_match_rate", 0.0) * 100
+                print(f"{c_name:<20} | {c_cer:<10.4f} | {c_delta:<+11.4f} | {c_deg:<+11.1f}% | {c_em:.1f}%")
+            print("-" * 75)
+            print(f"Robustness Summary: {robust_report.get('robustness_summary')}")
+
+    # 4. Export Comprehensive Forensic Reports
+    print("\n[STEP 4] Exporting Forensic Audit Reports...")
     export_paths = export_ocr_reports(
         synthetic_report=synth_report,
         midv_report=midv_report,
+        robustness_report=robust_report,
     )
     print(f"  • Summary CSV:   {export_paths['csv_path']}")
     print(f"  • Audit Report:  {export_paths['md_path']}")
@@ -1070,6 +1133,7 @@ def main():
     oe_parser.add_argument("--samples", type=int, default=20, help="Number of document samples to evaluate")
     oe_parser.add_argument("--engine", type=str, default="rapidocr", choices=["rapidocr", "tesseract"], help="OCR engine")
     oe_parser.add_argument("--cards", type=int, default=4, help="Number of visual diagnostic explanation cards to generate")
+    oe_parser.add_argument("--stress-test", action="store_true", help="Run multi-condition optical stress testing (blur, glare, underexposure, downsampling)")
     oe_parser.add_argument("--seed", type=int, default=42, help="Random seed")
 
     args = parser.parse_args()

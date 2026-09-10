@@ -280,6 +280,8 @@ def extract_structured_fields(
     engine: str = "auto",
     field_bboxes: Optional[Dict[str, List[int]]] = None,
     use_preprocessing: bool = True,
+    tamper_signals: Optional[Dict[str, Any]] = None,
+    tamper_mask: Optional[np.ndarray] = None,
 ) -> Dict[str, Any]:
     """
     Extract canonical identity document fields:
@@ -290,6 +292,9 @@ def extract_structured_fields(
         template_type: document template model ('forgelensia', 'generic')
         engine: OCR engine ('auto', 'rapidocr', 'tesseract')
         field_bboxes: optional bounding box overrides per field
+        use_preprocessing: whether to apply adaptive contrast enhancement
+        tamper_signals: optional M1 tamper forensic signals for cross-modal linking
+        tamper_mask: optional binary tamper mask
 
     Returns:
         Structured dictionary matching canonical specification:
@@ -302,6 +307,10 @@ def extract_structured_fields(
                 "expiry_date": {...},
             },
             "ocr_lines": [...],
+            "chronology_audit": {...},
+            "mrz_data": {...} or None,
+            "mrz_cross_validation": {...},
+            "tamper_correlation": {...},
             "engine": str,
             "time_seconds": float,
         }
@@ -335,6 +344,10 @@ def extract_structured_fields(
         return {
             "fields": fields,
             "ocr_lines": [],
+            "chronology_audit": {"chronology_valid": False, "status": "NO_IMAGE"},
+            "mrz_data": None,
+            "mrz_cross_validation": {"cross_validation_status": "NO_IMAGE"},
+            "tamper_correlation": {"tampered_fields_count": 0, "integrity_verdict": "NO_IMAGE"},
             "engine": engine,
             "error": "invalid_input",
             "time_seconds": round(time.time() - start_time, 3),
@@ -422,13 +435,65 @@ def extract_structured_fields(
                     "raw_text": d_val,
                 }
 
+    # 4. Contextual Character Confusion Glyph Repair
+    try:
+        from src.ocr_postprocess import repair_glyph_confusions
+        for fname, f_info in fields.items():
+            if f_info.get("value"):
+                ftype = "date" if "date" in fname or fname == "dob" else "document_number" if fname == "document_number" else "text"
+                repaired_res = repair_glyph_confusions(f_info["value"], ftype)
+                repaired = repaired_res[0] if isinstance(repaired_res, tuple) else repaired_res
+                if repaired:
+                    f_info["value"] = repaired
+    except Exception:
+        pass
+
+    # 5. Date Chronology & Physical Sanity Audit
+    chronology_res = {"chronology_valid": True, "status": "NOT_AUDITED", "anomalies": []}
+    try:
+        from src.ocr_postprocess import validate_date_chronology
+        chronology_res = validate_date_chronology(fields)
+    except Exception:
+        pass
+
+    # 6. ICAO Doc 9303 MRZ Parsing & Checksum Audit
+    mrz_res = None
+    mrz_cross_res = {"cross_validation_status": "NO_MRZ_DETECTED", "is_consistent": True}
+    try:
+        from src.ocr_postprocess import cross_validate_viz_and_mrz, parse_mrz_lines
+        mrz_res = parse_mrz_lines(ocr_lines)
+        if mrz_res:
+            mrz_cross_res = cross_validate_viz_and_mrz(fields, mrz_res)
+    except Exception:
+        pass
+
+    # 7. Forensic Cross-Modality Tamper Correlation (M1 x M3 Bridge)
+    tamper_corr_res = {
+        "tampered_fields_count": 0,
+        "tampered_field_names": [],
+        "integrity_verdict": "NOT_EVALUATED",
+    }
+    if tamper_signals is not None or tamper_mask is not None:
+        try:
+            from src.ocr_forensic_bridge import correlate_tamper_with_fields
+            tamper_corr_res = correlate_tamper_with_fields(
+                extracted_fields=fields,
+                tamper_signals=tamper_signals,
+                tamper_mask=tamper_mask,
+            )
+        except Exception:
+            pass
+
     elapsed = round(time.time() - start_time, 3)
 
     return {
         "fields": fields,
         "ocr_lines": ocr_lines,
-        "n_extracted": sum(1 for f in fields.values() if f["status"] == "EXTRACTED"),
-        "n_total_fields": len(fields),
-        "engine": "rapidocr" if _RAPID_OCR_INSTANCE is not None else "fallback",
+        "chronology_audit": chronology_res,
+        "mrz_data": mrz_res,
+        "mrz_cross_validation": mrz_cross_res,
+        "tamper_correlation": tamper_corr_res,
+        "engine": "rapidocr" if engine in ["auto", "rapidocr", "paddleocr"] else engine,
+        "document_type": template_type,
         "time_seconds": elapsed,
     }

@@ -413,11 +413,22 @@ def evaluate_ocr_dataset(
     overall_conf = float(np.mean(all_confs)) if all_confs else 0.0
     mean_lat = float(np.mean(latencies_ms)) if latencies_ms else 0.0
 
+    chronology_valid_docs = sum(
+        1 for s in sample_evaluations
+        if s.get("raw_extracted", {}).get("chronology_audit", {}).get("chronology_valid", True)
+    )
+    mrz_detected_docs = sum(
+        1 for s in sample_evaluations
+        if s.get("raw_extracted", {}).get("mrz_data") is not None
+    )
+
     return {
         "dataset_type": dataset_type,
         "ocr_engine": ocr_engine,
         "total_documents_evaluated": len(sample_evaluations),
         "total_fields_evaluated": total_eval_fields,
+        "chronology_valid_documents": chronology_valid_docs,
+        "mrz_detected_documents": mrz_detected_docs,
         "overall_metrics": {
             "exact_match_rate": round(overall_exact_match_rate, 4),
             "mean_edit_similarity": round(overall_similarity, 4),
@@ -432,12 +443,141 @@ def evaluate_ocr_dataset(
 
 
 # ---------------------------------------------------------------------------
+# Robustness & Degradation Stress-Testing Suite
+# ---------------------------------------------------------------------------
+
+def apply_gaussian_blur(img: np.ndarray, ksize: int = 5, sigma: float = 1.5) -> np.ndarray:
+    """Simulate optical defocus / camera movement blur."""
+    import cv2
+    return cv2.GaussianBlur(img, (ksize, ksize), sigma)
+
+
+def apply_specular_glare(img: np.ndarray, radius: int = 55, intensity: float = 0.75) -> np.ndarray:
+    """Simulate flash glare or overhead lamp reflection."""
+    h, w = img.shape[:2]
+    out = img.copy().astype(np.float32)
+    cx, cy = w // 2, h // 2
+    y, x = np.ogrid[:h, :w]
+    dist_sq = (x - cx) ** 2 + (y - cy) ** 2
+    mask = np.exp(-dist_sq / (2 * (radius ** 2)))
+    for c in range(3):
+        out[:, :, c] = out[:, :, c] * (1 - intensity * mask) + 255.0 * (intensity * mask)
+    return np.clip(out, 0, 255).astype(np.uint8)
+
+
+def apply_underexposure(img: np.ndarray, gamma: float = 0.5, factor: Optional[float] = None) -> np.ndarray:
+    """Simulate low-light or shadow capture."""
+    import cv2
+    if factor is not None:
+        gamma = factor
+    inv_gamma = 1.0 / max(0.01, float(gamma))
+    table = np.array([((i / 255.0) ** inv_gamma) * 255 for i in np.arange(0, 256)]).astype(np.uint8)
+    return cv2.LUT(img, table)
+
+
+def apply_downsampling(img: np.ndarray, scale: float = 0.5) -> np.ndarray:
+    """Simulate low-resolution mobile sensor capture."""
+    import cv2
+    h, w = img.shape[:2]
+    small = cv2.resize(img, (max(1, int(w * scale)), max(1, int(h * scale))), interpolation=cv2.INTER_AREA)
+    return cv2.resize(small, (w, h), interpolation=cv2.INTER_CUBIC)
+
+
+def evaluate_ocr_robustness(
+    samples: List[Dict[str, Any]],
+    ocr_engine: str = "rapidocr",
+    n_samples: int = 5,
+    stress_conditions: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Stress-test OCR engine across systematic optical degradation perturbations:
+    Baseline, Gaussian Blur, Specular Glare, Underexposure, Downsampling.
+    """
+    import cv2
+    from src.ocr import load_image_for_ocr, extract_structured_fields
+
+    eval_items = samples[:n_samples]
+    all_perturbations = {
+        "baseline": lambda img: img,
+        "gaussian_blur": lambda img: apply_gaussian_blur(img, ksize=5, sigma=1.5),
+        "specular_glare": lambda img: apply_specular_glare(img, radius=55, intensity=0.7),
+        "underexposure": lambda img: apply_underexposure(img, gamma=0.55),
+        "downsampling": lambda img: apply_downsampling(img, scale=0.5),
+    }
+
+    if stress_conditions:
+        perturbations = {k: v for k, v in all_perturbations.items() if k in stress_conditions}
+    else:
+        perturbations = all_perturbations
+
+    results = {}
+    baseline_cer = 0.0
+
+    for p_name, p_func in perturbations.items():
+        cers = []
+        sims = []
+        exacts = []
+        lats = []
+
+        for item in eval_items:
+            img_path = item.get("image_path")
+            gt_fields = item.get("fields") or item.get("ground_truth_fields") or {}
+
+            raw_bgr = load_image_for_ocr(img_path)
+            if raw_bgr is None:
+                continue
+
+            perturbed = p_func(raw_bgr)
+
+            t0 = time.time()
+            ext_res = extract_structured_fields(perturbed, engine=ocr_engine)
+            lats.append((time.time() - t0) * 1000.0)
+
+            eval_res = evaluate_field_extraction(ext_res.get("fields", {}), gt_fields)
+            for f_res in eval_res.values():
+                if f_res.get("ground_truth"):
+                    cers.append(f_res["cer"])
+                    sims.append(f_res["similarity"])
+                    if f_res["exact_match"]:
+                        exacts.append(1)
+                    else:
+                        exacts.append(0)
+
+        n_fields = max(len(exacts), 1)
+        mean_c = round(float(np.mean(cers)), 4) if cers else 0.0
+        if p_name == "baseline":
+            baseline_cer = mean_c
+
+        c_delta = round(mean_c - baseline_cer, 4)
+        c_deg = round(((mean_c - baseline_cer) / max(baseline_cer, 0.01)) * 100.0, 1)
+
+        results[p_name] = {
+            "mean_cer": mean_c,
+            "cer_delta_vs_baseline": c_delta,
+            "cer_degradation_pct": c_deg,
+            "mean_similarity": round(float(np.mean(sims)), 4) if sims else 0.0,
+            "exact_match_rate": round(sum(exacts) / n_fields, 4),
+            "mean_latency_ms": round(float(np.mean(lats)), 1) if lats else 0.0,
+            "fields_evaluated": len(exacts),
+        }
+
+    summary = f"Evaluated {len(perturbations)} conditions across {len(eval_items)} docs. Baseline CER: {baseline_cer:.4f}."
+
+    return {
+        "stress_conditions": results,
+        "robustness_summary": summary,
+        **results,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Report Export Engine
 # ---------------------------------------------------------------------------
 
 def export_ocr_reports(
     synthetic_report: Optional[Dict[str, Any]] = None,
     midv_report: Optional[Dict[str, Any]] = None,
+    robustness_report: Optional[Dict[str, Any]] = None,
     csv_path: Optional[str] = None,
     md_path: Optional[str] = None,
     json_path: Optional[str] = None,
@@ -509,12 +649,13 @@ def export_ocr_reports(
         "title": "OCR, Structured Field Extraction & MIDV-500 Validation",
         "synthetic_benchmark": synthetic_report,
         "midv500_benchmark": midv_report,
+        "robustness_stress_test": robustness_report,
     }
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(json_payload, f, indent=2)
 
     # 3. Export Markdown Audit Report
-    md_content = _generate_m3_markdown_report(synthetic_report, midv_report)
+    md_content = _generate_m3_markdown_report(synthetic_report, midv_report, robustness_report)
     with open(md_path, "w", encoding="utf-8") as f:
         f.write(md_content)
 
@@ -528,6 +669,7 @@ def export_ocr_reports(
 def _generate_m3_markdown_report(
     synth_rep: Optional[Dict[str, Any]],
     midv_rep: Optional[Dict[str, Any]],
+    rob_rep: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Generate publication-grade Markdown forensic audit report for Milestone 3."""
     now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -613,9 +755,32 @@ def _generate_m3_markdown_report(
     else:
         md.append("*MIDV-500 benchmark evaluation not executed or skipped.*\n")
 
-    # Section 5: Zero-Leakage Source Partitioning Proof
+    # Section 5: Optical Stress-Testing & Robustness Profiling
+    if rob_rep:
+        md.append("---")
+        md.append("### 5. Multi-Condition Optical Degradation & Robustness Profiling")
+        md.append(
+            "Evaluation of optical character recognition resilience across systematic sensor degradations "
+            "(Gaussian defocus blur, flash/overhead specular glare, low-light underexposure, and resolution downsampling):"
+        )
+        md.append("")
+        md.append("| Degradation Condition | Evaluated Fields | Exact Match % | Edit Similarity % | CER | Mean Latency |")
+        md.append("| :--- | :--- | :--- | :--- | :--- | :--- |")
+        cond_map = rob_rep.get("stress_conditions", rob_rep)
+        for cond, metrics in cond_map.items():
+            if not isinstance(metrics, dict) or cond == "stress_conditions":
+                continue
+            c_name = cond.replace("_", " ").title()
+            md.append(
+                f"| **{c_name}** | {metrics.get('fields_evaluated', 0)} | "
+                f"{metrics.get('exact_match_rate', 0.0)*100:.1f}% | {metrics.get('mean_similarity', 0.0)*100:.1f}% | "
+                f"{metrics.get('mean_cer', 0.0):.4f} | {metrics.get('mean_latency_ms', 0.0):.1f} ms |"
+            )
+        md.append("")
+
+    # Section 6: Zero-Leakage Source Partitioning Proof
     md.append("---")
-    md.append("### 5. Zero-Leakage Source-Clip Partitioning Validation")
+    md.append("### 6. Zero-Leakage Source-Clip Partitioning Validation")
     md.append(
         "> [!IMPORTANT]\n"
         "> **Forensic Partitioning Guarantee:** In real-world video benchmarks such as MIDV-500, frames from the same "
@@ -626,8 +791,8 @@ def _generate_m3_markdown_report(
     )
     md.append("")
 
-    # Section 6: Failure Mode & Triage Analysis
-    md.append("### 6. Error & Failure Mode Analysis")
+    # Section 7: Failure Mode & Triage Analysis
+    md.append("### 7. Error & Failure Mode Analysis")
     md.append(
         "1. **Low Confidence Triage:** Fields yielding confidence scores $< 0.50$ (or unrecognized regions) are flagged "
         "`status=\"LOW_CONFIDENCE\"` or `status=\"UNKNOWN\"` with `value=None`. The system NEVER fabricates hallucinated values.\n"
