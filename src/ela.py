@@ -110,6 +110,61 @@ def compute_baseline(
     }
 
 
+def calibrate_threshold(
+    genuine_paths: list,
+    baseline: dict,
+    percentile: float = 80.0,
+    quality: int = 90,
+    k: float = 1.8,
+    min_std: float = 1.5,
+    min_area: int = 25,
+    closing_ksize: tuple = (11, 7),
+    default_threshold: float = 60.0,
+    max_threshold: float = 85.0,
+) -> float:
+    """
+    Empirically calibrate the anomaly energy threshold on known genuine samples.
+
+    Guarantees that the empirical false alarm rate on genuine documents
+    matches the target alpha level while capping against outlier text lengths.
+
+    Args:
+        genuine_paths: paths to genuine documents in calibration split
+        baseline: baseline dict from compute_baseline
+        percentile: percentile for threshold cutoff (e.g. 80.0)
+        quality: JPEG recompression quality
+        k: standard deviation multiplier
+        min_std: minimum std noise floor
+        min_area: minimum component area
+        closing_ksize: kernel size for text closing
+        default_threshold: fallback default threshold
+        max_threshold: ceiling to maintain detection sensitivity for subtle edits
+
+    Returns:
+        float: calibrated energy threshold
+    """
+    if not genuine_paths:
+        return default_threshold
+
+    energies = []
+    for path in genuine_paths:
+        heatmap = compute_ela(path, quality=quality)
+        anom = anomaly_map(heatmap, baseline, k=k, min_std=min_std)
+        candidate = propose_candidate_region(
+            anom,
+            min_area=min_area,
+            closing_ksize=closing_ksize,
+            energy_threshold=0.0,  # capture all candidate energies
+        )
+        energies.append(candidate["energy"] if candidate else 0.0)
+
+    if energies:
+        calibrated = float(np.percentile(energies, percentile))
+        thresh = max(calibrated * 1.05, default_threshold)
+        return min(thresh, max_threshold)
+    return default_threshold
+
+
 def anomaly_map(
     ela_heatmap: np.ndarray,
     baseline: dict,

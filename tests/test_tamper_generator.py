@@ -64,7 +64,9 @@ class TestAttackTypes:
         result = apply_copy_move(sample_image, sample_bboxes, seed=42)
         assert result["attack_type"] == "copy_move"
         assert "source_bbox" in result
+        assert "destination_bbox" in result
         assert len(result["source_bbox"]) == 4
+        assert len(result["destination_bbox"]) == 4
 
     def test_all_attacks_produce_masks(self, sample_image, sample_bboxes):
         for attack_name, attack_fn in ATTACK_FUNCTIONS.items():

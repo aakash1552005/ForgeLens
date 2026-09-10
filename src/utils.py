@@ -159,3 +159,107 @@ def get_forensic_dir() -> Path:
 def get_reports_dir() -> Path:
     """Return reports/ directory."""
     return get_project_root() / "reports"
+
+
+def get_splits_dir() -> Path:
+    """Return data/splits/ directory."""
+    return get_data_dir() / "splits"
+
+
+def create_dataset_splits(
+    master_index: dict,
+    output_dir: str = None,
+    train_ratio: float = 0.70,
+    cal_ratio: float = 0.15,
+    test_ratio: float = 0.15,
+    seed: int = 42,
+) -> dict:
+    """
+    Partition master_index samples by source_id into train/cal/test splits.
+
+    CRITICAL FOR FORENSIC VALIDITY:
+        All attack variants of a given source_id must remain in the
+        same split partition to prevent identity/template data leakage.
+
+    Args:
+        master_index: dict containing "samples" list
+        output_dir: directory to save split JSON files (defaults to data/splits/)
+        train_ratio: fraction for training (default 0.70)
+        cal_ratio: fraction for calibration (default 0.15)
+        test_ratio: fraction for final evaluation (default 0.15)
+        seed: random seed for reproducible partition
+
+    Returns:
+        {
+            "train": [samples...],
+            "cal": [samples...],
+            "test": [samples...],
+            "split_summary": {...}
+        }
+    """
+    samples = master_index.get("samples", [])
+    if not samples:
+        return {"train": [], "cal": [], "test": [], "split_summary": {}}
+
+    # Group samples by source_id
+    from collections import defaultdict
+    source_groups = defaultdict(list)
+    for s in samples:
+        source_groups[s["source_id"]].append(s)
+
+    unique_sources = sorted(list(source_groups.keys()))
+    rng = random.Random(seed)
+    shuffled_sources = list(unique_sources)
+    rng.shuffle(shuffled_sources)
+
+    n_sources = len(shuffled_sources)
+    if n_sources == 1:
+        train_sources = set(shuffled_sources)
+        cal_sources = set()
+        test_sources = set()
+    elif n_sources == 2:
+        train_sources = {shuffled_sources[0]}
+        cal_sources = set()
+        test_sources = {shuffled_sources[1]}
+    else:
+        n_train = max(1, int(n_sources * train_ratio))
+        n_cal = max(1, int(n_sources * cal_ratio))
+        # Ensure at least 1 in test if n_sources >= 3
+        if n_train + n_cal >= n_sources:
+            n_train = max(1, n_sources - 2)
+            n_cal = 1
+        train_sources = set(shuffled_sources[:n_train])
+        cal_sources = set(shuffled_sources[n_train:n_train + n_cal])
+        test_sources = set(shuffled_sources[n_train + n_cal:])
+
+    train_samples = [s for src in train_sources for s in source_groups[src]]
+    cal_samples = [s for src in cal_sources for s in source_groups[src]]
+    test_samples = [s for src in test_sources for s in source_groups[src]]
+
+    splits_data = {
+        "train": train_samples,
+        "cal": cal_samples,
+        "test": test_samples,
+        "split_summary": {
+            "n_sources_total": n_sources,
+            "n_sources_train": len(train_sources),
+            "n_sources_cal": len(cal_sources),
+            "n_sources_test": len(test_sources),
+            "n_samples_train": len(train_samples),
+            "n_samples_cal": len(cal_samples),
+            "n_samples_test": len(test_samples),
+        },
+    }
+
+    # Save to disk if requested or default
+    target_dir = str(output_dir) if output_dir else str(get_splits_dir())
+    ensure_dirs(target_dir)
+
+    save_metadata({"samples": train_samples, "source_ids": sorted(list(train_sources))},
+                  os.path.join(target_dir, "train.json"))
+    save_metadata({"samples": cal_samples, "source_ids": sorted(list(cal_sources))},
+                  os.path.join(target_dir, "cal.json"))
+    save_metadata({"samples": test_samples, "source_ids": sorted(list(test_sources))},
+                  os.path.join(target_dir, "test.json"))
+
+    return splits_data

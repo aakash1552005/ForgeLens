@@ -70,8 +70,24 @@ def cmd_generate(args):
     master_path = os.path.join(output_dir, "metadata", "master_index.json")
     save_metadata({"samples": all_metadata, "total": len(all_metadata)}, master_path)
 
+    # Generate zero-leakage splits
+    from src.utils import create_dataset_splits, get_splits_dir
+    splits = create_dataset_splits(
+        {"samples": all_metadata},
+        output_dir=get_splits_dir(),
+        train_ratio=config["dataset"]["train_ratio"],
+        cal_ratio=config["dataset"]["cal_ratio"],
+        test_ratio=config["dataset"]["test_ratio"],
+        seed=args.seed,
+    )
+    summary = splits["split_summary"]
+
     print(f"[M1] Done. {len(all_metadata)} samples in {output_dir}")
     print(f"     Master index: {master_path}")
+    print(f"[M1] Dataset splits created (zero-leakage by source_id):")
+    print(f"     Train: {summary['n_sources_train']} sources ({summary['n_samples_train']} samples)")
+    print(f"     Cal:   {summary['n_sources_cal']} sources ({summary['n_samples_cal']} samples)")
+    print(f"     Test:  {summary['n_sources_test']} sources ({summary['n_samples_test']} samples)")
     return all_metadata
 
 
@@ -102,6 +118,20 @@ def cmd_analyze(args):
     print(f"     Baseline built (mean ELA range: "
           f"{baseline['mean_map'].min():.2f} - {baseline['mean_map'].max():.2f})")
 
+    from src.ela import calibrate_threshold
+    cal_threshold = calibrate_threshold(
+        genuine_paths,
+        baseline,
+        percentile=95.0,
+        quality=config["ela"]["recompress_quality"],
+        k=config["ela"]["baseline_k"],
+        min_std=config["ela"].get("std_floor", 1.5),
+        min_area=config["ela"]["min_candidate_area"],
+        closing_ksize=tuple(config["ela"].get("closing_ksize", [11, 7])),
+        default_threshold=config["ela"].get("energy_threshold", 60.0),
+    )
+    print(f"     Empirically calibrated energy threshold: {cal_threshold:.1f}")
+
     # --- Analyze each sample ---
     forensic_dir = str(get_forensic_dir())
     ela_dir = os.path.join(forensic_dir, "ela")
@@ -128,7 +158,7 @@ def cmd_analyze(args):
             min_std=ela_cfg.get("std_floor", 1.5),
             min_area=ela_cfg["min_candidate_area"],
             closing_ksize=tuple(ela_cfg.get("closing_ksize", [11, 7])),
-            energy_threshold=ela_cfg.get("energy_threshold", 60.0),
+            energy_threshold=cal_threshold,
         )
 
         # --- Copy-move ---
@@ -246,8 +276,33 @@ def _print_detector_summary(detector_results: dict):
             print(f"    {attack:15s}  det={det_rate}  iou={mean_iou}")
 
 
+def cmd_visualize(args):
+    """Generate visual forensic explanation cards for human review."""
+    from src.visualize import visualize_batch
+
+    forensic_dir = str(get_forensic_dir())
+    analysis_path = os.path.join(forensic_dir, "analysis_results.json")
+    master_path = os.path.join(str(get_generated_dir()), "metadata", "master_index.json")
+
+    if not os.path.exists(analysis_path) or not os.path.exists(master_path):
+        print(f"[ERROR] Analysis or master index missing. Run 'run-demo' or 'analyze' first.")
+        sys.exit(1)
+
+    analysis = load_metadata(analysis_path)["results"]
+    master = load_metadata(master_path)["samples"]
+
+    max_samples = getattr(args, "count", 5)
+    print(f"[M1] Generating up to {max_samples} visual forensic explanation cards...")
+    saved = visualize_batch(master, analysis, max_samples=max_samples)
+
+    print(f"[M1] Generated {len(saved)} visual diagnostic panels in reports/visuals/:")
+    for p in saved:
+        print(f"  • {p}")
+    return saved
+
+
 def cmd_run_demo(args):
-    """Run the full M1 pipeline end-to-end."""
+    """Run the full M1 pipeline end-to-end with visual explainability."""
     start = time.time()
 
     print("=" * 60)
@@ -257,19 +312,25 @@ def cmd_run_demo(args):
     print()
 
     # Step 1: Generate
-    print("[STEP 1/3] Generating synthetic documents + attacks...")
+    print("[STEP 1/4] Generating synthetic documents + attacks + dataset splits...")
     cmd_generate(args)
     print()
 
     # Step 2: Analyze
-    print("[STEP 2/3] Running ELA + Copy-Move analysis...")
+    print("[STEP 2/4] Running ELA + Copy-Move analysis...")
     args.data_dir = None  # use default
     cmd_analyze(args)
     print()
 
     # Step 3: Evaluate
-    print("[STEP 3/3] Evaluating results...")
+    print("[STEP 3/4] Evaluating results...")
     eval_results = cmd_evaluate(args)
+    print()
+
+    # Step 4: Visualize
+    print("[STEP 4/4] Generating visual forensic explanation cards...")
+    args.count = 5
+    cmd_visualize(args)
     print()
 
     elapsed = time.time() - start
@@ -300,6 +361,10 @@ def main():
     eval_parser = subparsers.add_parser("evaluate", help="Evaluate results")
     eval_parser.add_argument("--seed", type=int, default=42)
 
+    # visualize
+    vis_parser = subparsers.add_parser("visualize", help="Generate visual forensic explanation cards")
+    vis_parser.add_argument("--count", type=int, default=5, help="Number of diagnostic cards to generate")
+
     # run-demo
     demo_parser = subparsers.add_parser("run-demo", help="Full pipeline demo")
     demo_parser.add_argument("--samples", type=int, default=10)
@@ -315,6 +380,7 @@ def main():
         "generate": cmd_generate,
         "analyze": cmd_analyze,
         "evaluate": cmd_evaluate,
+        "visualize": cmd_visualize,
         "run-demo": cmd_run_demo,
     }
 

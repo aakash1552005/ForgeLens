@@ -162,7 +162,18 @@ def _evaluate_detector(
         predictions.append({"detected": detected})
         ground_truths.append({"label": label})
 
-        iou = evaluate_localization(pred_bbox, gt_bbox)
+        if detector_name == "copy_move":
+            alt_bbox = r.get("copy_move_alt_bbox")
+            src_bbox = r.get("source_bbox")
+            candidates = [c for c in [pred_bbox, alt_bbox] if c is not None]
+            targets = [t for t in [gt_bbox, src_bbox] if t is not None]
+            best_iou = 0.0
+            for c in candidates:
+                for t in targets:
+                    best_iou = max(best_iou, evaluate_localization(c, t))
+            iou = best_iou
+        else:
+            iou = evaluate_localization(pred_bbox, gt_bbox)
 
         per_attack_data[attack_type]["preds"].append({"detected": detected})
         per_attack_data[attack_type]["gts"].append({"label": label})

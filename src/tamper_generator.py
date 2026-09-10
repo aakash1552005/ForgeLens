@@ -182,15 +182,40 @@ def apply_photo_swap(
     seed: int = 42,
 ) -> dict:
     """
-    Attack type 3: Replace placeholder photo with a different one.
+    Attack type 3: Replace photo with an externally sourced portrait.
+
+    Splicing realism:
+        1. Render alternative portrait with distinct seed
+        2. Inject photographic sensor micro-texture (subtle Gaussian noise)
+        3. Pre-compress as external JPEG at quality=92
+        4. Paste into host document canvas
     """
     photo_info = field_bboxes["photo"]
     bbox = photo_info["bbox"]
+    x1, y1, x2, y2 = bbox
+    w, h = x2 - x1, y2 - y1
 
-    # Generate different placeholder (different seed = different colors/shapes)
+    # Create standalone cropped photo
+    swapped_crop = Image.new("RGB", (w, h), (200, 200, 210))
+    draw = ImageDraw.Draw(swapped_crop)
+    _draw_placeholder_photo(draw, [0, 0, w, h], seed=seed + 9999)
+
+    # Inject photographic sensor micro-texture
+    arr = np.array(swapped_crop, dtype=np.int16)
+    noise_rng = np.random.RandomState(seed + 9999)
+    noise = noise_rng.normal(0, 6.0, arr.shape).astype(np.int16)
+    arr = np.clip(arr + noise, 0, 255).astype(np.uint8)
+    textured_crop = Image.fromarray(arr)
+
+    # Pre-compress as external JPEG at Q=92
+    buf = BytesIO()
+    textured_crop.save(buf, "JPEG", quality=92, subsampling=0)
+    buf.seek(0)
+    external_photo = Image.open(buf).convert("RGB")
+
+    # Paste onto host image
     tampered = image.copy()
-    draw = ImageDraw.Draw(tampered)
-    _draw_placeholder_photo(draw, bbox, seed + 9999)  # Different seed
+    tampered.paste(external_photo, (x1, y1))
 
     # Create mask
     mask = _create_mask(image.width, image.height)
@@ -257,6 +282,7 @@ def apply_copy_move(
         "original_value": f"source:{src_bbox}",
         "tampered_value": f"destination:{dst_bbox}",
         "source_bbox": src_bbox,
+        "destination_bbox": dst_bbox,
     }
 
 
@@ -369,6 +395,8 @@ def generate_tampered_dataset(
         # Copy-move extra metadata
         if "source_bbox" in attack_result:
             meta["source_bbox"] = attack_result["source_bbox"]
+        if "destination_bbox" in attack_result:
+            meta["destination_bbox"] = attack_result["destination_bbox"]
 
         save_metadata(meta, os.path.join(metadata_dir, f"{source_id}_{attack_type}.json"))
         results.append(meta)

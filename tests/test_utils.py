@@ -105,3 +105,45 @@ class TestSetSeed:
         set_seed(99)
         b = np.random.rand(5)
         assert not np.array_equal(a, b)
+
+
+class TestDatasetSplits:
+    """Tests for zero-leakage dataset partitioning."""
+
+    def test_split_proportions_and_no_leakage(self):
+        from src.utils import create_dataset_splits
+        import tempfile
+
+        # 10 sources, each with 5 samples
+        samples = []
+        for src_i in range(10):
+            sid = f"src_{src_i:04d}"
+            for atk in ["none", "date_edit", "text_edit", "photo_swap", "copy_move"]:
+                samples.append({"source_id": sid, "attack_type": atk})
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            splits = create_dataset_splits(
+                {"samples": samples},
+                output_dir=tmpdir,
+                train_ratio=0.70,
+                cal_ratio=0.15,
+                test_ratio=0.15,
+                seed=42,
+            )
+
+            train_sources = {s["source_id"] for s in splits["train"]}
+            cal_sources = {s["source_id"] for s in splits["cal"]}
+            test_sources = {s["source_id"] for s in splits["test"]}
+
+            # 1. Total samples conserved
+            assert len(splits["train"]) + len(splits["cal"]) + len(splits["test"]) == 50
+
+            # 2. ZERO leakage between splits
+            assert len(train_sources.intersection(cal_sources)) == 0
+            assert len(train_sources.intersection(test_sources)) == 0
+            assert len(cal_sources.intersection(test_sources)) == 0
+
+            # 3. Correct partition counts
+            assert len(train_sources) == 7
+            assert len(cal_sources) == 1
+            assert len(test_sources) == 2
