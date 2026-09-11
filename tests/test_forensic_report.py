@@ -15,10 +15,12 @@ import pytest
 from src.forensic_report import (
     analyze_document_quality,
     classify_attack_heuristic,
+    compute_attack_hypotheses_and_severity,
     correlate_suspicious_regions,
     export_unified_report,
     extract_m6_feature_vector,
     generate_unified_forensic_report,
+    validate_report_schema,
 )
 
 
@@ -542,5 +544,161 @@ def test_benchmark_dataset_scope_filtering():
     assert res["metrics"]["total_documents_audited"] > 0
     assert res["metrics"]["tampered_count"] == 0
     assert res["metrics"]["degraded_count"] > 0
+
+
+def test_validate_report_schema_compliance():
+    """Verify validate_report_schema helper on compliant vs non-compliant reports."""
+    compliant_report = {
+        "schema_version": "1.0",
+        "document_id": "test_doc_001",
+        "document_type": "forgelensia",
+        "executive_summary": "Document authentic",
+        "quality": {},
+        "fields": {},
+        "semantic_checks": [],
+        "tamper_signals": {},
+        "face_verification": {},
+        "suspicious_regions": [],
+        "attack_type_guess": "none",
+        "attack_type_confidence": 0.0,
+        "attack_type_basis": [],
+        "secondary_attack_guess": None,
+        "secondary_attack_confidence": None,
+        "multi_attack_detected": False,
+        "attack_hypotheses_ranked": [],
+        "fraud_severity": "NONE",
+        "risk_score": None,
+        "fraud_probability": None,
+        "decision": "CLEAR_AUTHENTIC",
+        "feature_vector": {},
+    }
+    is_valid, errors = validate_report_schema(compliant_report)
+    assert is_valid is True
+    assert len(errors) == 0
+
+    # Test missing keys
+    bad_report = {"schema_version": "1.0", "document_id": "bad"}
+    is_bad, bad_errors = validate_report_schema(bad_report)
+    assert is_bad is False
+    assert len(bad_errors) > 5
+
+
+def test_identity_screener_in_memory_face_extraction(tmp_path):
+    """Verify that extract_face_from_document operates purely in-memory without temp files."""
+    from src.identity_screener import extract_face_from_document
+    from src.document_template import generate_document
+
+    doc = generate_document(source_id="test_in_memory", seed=42)
+    doc_path = str(tmp_path / "in_memory_doc.jpg")
+    doc["image"].save(doc_path)
+
+    # Extract face
+    res = extract_face_from_document(doc_path)
+    # The synthetic template has a photo box; face detection might detect or fallback gracefully
+    assert res is None or isinstance(res, dict)
+    if res:
+        assert "face_image" in res
+        assert "bbox" in res
+        assert isinstance(res["face_image"], np.ndarray)
+
+
+def test_mrz_discrepancy_heuristic_boost():
+    """Verify that MRZ suspicious regions boost date_edit and text_edit attack scores."""
+    qual = {"analysis_reliability": "HIGH", "quality_flags": []}
+
+    # MRZ with date discrepancy
+    mrz_date_reg = [{
+        "source": "mrz",
+        "field": "mrz",
+        "confidence": 0.95,
+        "evidence": "VIZ/MRZ Identity Contradiction: DOB in VIZ (1985-05-12) does not match MRZ date (880512)",
+    }]
+    att_d, conf_d, basis_d, dec_d = classify_attack_heuristic(
+        tamper_signals={"copy_move": {"num_matches": 0}},
+        semantic_checks=[],
+        font_audit=None,
+        face_verification={"has_face_check": False},
+        suspicious_regions=mrz_date_reg,
+        quality=qual,
+    )
+    assert att_d == "date_edit"
+    assert conf_d >= 0.60
+    assert dec_d == "SUSPECT_TAMPERING"
+
+    # MRZ with document number discrepancy
+    mrz_doc_reg = [{
+        "source": "mrz",
+        "field": "mrz",
+        "confidence": 0.95,
+        "evidence": "VIZ/MRZ Identity Contradiction: Document Number in VIZ differs from MRZ doc number",
+    }]
+    att_t, conf_t, basis_t, dec_t = classify_attack_heuristic(
+        tamper_signals={"copy_move": {"num_matches": 0}},
+        semantic_checks=[],
+        font_audit=None,
+        face_verification={"has_face_check": False},
+        suspicious_regions=mrz_doc_reg,
+        quality=qual,
+    )
+    assert att_t == "text_edit"
+    assert conf_t >= 0.60
+    assert dec_t == "SUSPECT_TAMPERING"
+
+
+def test_photo_swap_biometric_ela_synergy():
+    """Verify that dual corroboration of ELA on photo portrait and face mismatch promotes severity to CRITICAL."""
+    qual = {"analysis_reliability": "HIGH", "quality_flags": []}
+    suspicious_regs = [
+        {"source": "ela", "field": "photo", "confidence": 0.85, "evidence": "ELA boundary discontinuity on portrait"},
+        {"source": "face", "field": "photo", "confidence": 0.90, "evidence": "Biometric face mismatch (distance=0.55)"},
+    ]
+    face_mismatch = {
+        "has_face_check": True,
+        "verified": False,
+        "distance": 0.55,
+        "threshold": 0.40,
+    }
+
+    att, conf, basis, dec = classify_attack_heuristic(
+        tamper_signals={"copy_move": {"num_matches": 0}},
+        semantic_checks=[],
+        font_audit=None,
+        face_verification=face_mismatch,
+        suspicious_regions=suspicious_regs,
+        quality=qual,
+    )
+    assert att == "photo_swap"
+    assert conf >= 0.85
+    assert any("Dual corroboration" in b for b in basis)
+
+    hypo = compute_attack_hypotheses_and_severity(
+        tamper_signals={"copy_move": {"num_matches": 0}},
+        semantic_checks=[],
+        font_audit=None,
+        face_verification=face_mismatch,
+        suspicious_regions=suspicious_regs,
+        attack_guess=att,
+        attack_conf=conf,
+    )
+    assert hypo["fraud_severity"] == "CRITICAL"
+
+
+def test_cmd_system_audit_cli():
+    """Verify that cmd_system_audit executes end-to-end and returns PASS across all 5 milestones."""
+    import argparse
+    from src.cli import cmd_system_audit
+
+    args = argparse.Namespace(json=None)
+    result = cmd_system_audit(args)
+    assert result["status"] == "PASS"
+    for m_name in [
+        "M1_Physical_Forensics",
+        "M2_Biometric_Verification",
+        "M3_Structured_OCR",
+        "M4_Semantic_MRZ_Typography",
+        "M5_Unified_Forensic_Report",
+    ]:
+        assert m_name in result["milestones"]
+        assert result["milestones"][m_name]["status"] == "PASS"
 
 

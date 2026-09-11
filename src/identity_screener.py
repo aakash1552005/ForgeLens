@@ -66,20 +66,8 @@ def extract_face_from_document(
 
     crop = img_bgr[y1:y2, x1:x2]
 
-    # Save crop to temporary file to run extract_face
-    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp_f:
-        tmp_crop_path = tmp_f.name
-    cv2.imwrite(tmp_crop_path, crop)
-
-    crop_face = None
-    try:
-        crop_face = extract_face(tmp_crop_path, align=True)
-    finally:
-        if os.path.exists(tmp_crop_path):
-            try:
-                os.remove(tmp_crop_path)
-            except Exception:
-                pass
+    # Run in-memory face extraction directly on candidate crop
+    crop_face = extract_face(crop, align=True) if crop.size > 0 else None
 
     if crop_face is not None:
         bx, by, bw, bh = crop_face["bbox"]
@@ -105,8 +93,8 @@ def extract_face_from_document(
             "quality": quality,
         }
 
-    # Fallback: Detect directly on the full document image
-    full_face = extract_face(document_path, align=True)
+    # Fallback: Detect directly on the full document image in memory
+    full_face = extract_face(img_bgr, align=True)
     return full_face
 
 

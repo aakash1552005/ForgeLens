@@ -580,6 +580,18 @@ def classify_attack_heuristic(
         elif field == "photo":
             scores["photo_swap"] += 0.75 * conf
             basis.append(f"Suspicious region ({src}) identified over photo portrait region: {s_reg.get('evidence')}")
+        elif field == "mrz" or src == "mrz":
+            ev_str = str(s_reg.get("evidence", "")).lower()
+            if any(k in ev_str for k in ["date", "dob", "expiry", "birth"]):
+                scores["date_edit"] += 0.70 * conf
+                basis.append(f"MRZ discrepancy indicates date manipulation: {s_reg.get('evidence')}")
+            elif any(k in ev_str for k in ["doc", "number", "name", "id"]):
+                scores["text_edit"] += 0.70 * conf
+                basis.append(f"MRZ discrepancy indicates identity text manipulation: {s_reg.get('evidence')}")
+            else:
+                scores["text_edit"] += 0.50 * conf
+                scores["date_edit"] += 0.50 * conf
+                basis.append(f"MRZ checksum or format anomaly detected: {s_reg.get('evidence')}")
 
     # 4. Inspect Semantic Rule Failures
     for chk in semantic_checks:
@@ -611,6 +623,14 @@ def classify_attack_heuristic(
                 f"Biometric face mismatch (cosine distance = {face_verification.get('distance')}, "
                 f"threshold = {face_verification.get('threshold')})"
             )
+            # Physical-Biometric Synergy: Corroborate biometric mismatch with ELA boundary anomaly
+            has_photo_ela = any(
+                s.get("field") == "photo" and s.get("source") == "ela"
+                for s in suspicious_regions
+            )
+            if has_photo_ela:
+                scores["photo_swap"] += 0.40
+                basis.append("Dual corroboration: Biometric face mismatch aligns with physical ELA compression anomaly on portrait.")
         elif face_verification.get("verified") is True:
             # High-confidence face match reduces likelihood of photo swap
             scores["photo_swap"] = max(0.0, scores["photo_swap"] - 0.40)
@@ -635,6 +655,7 @@ def classify_attack_heuristic(
         or (cm_data.get("detected") is True)
         or (face_verification.get("has_face_check") and face_verification.get("verified") is False)
         or (metadata_audit and metadata_audit.get("is_tampered"))
+        or any(s.get("source") == "mrz" or s.get("field") == "mrz" for s in suspicious_regions)
     )
 
     # Physical ELA energy check
@@ -646,7 +667,10 @@ def classify_attack_heuristic(
     # For text_edit: require corroboration, or document_number field, or decisive energy
     is_text_tamper = (
         max_attack == "text_edit"
-        and (has_corroboration or any(s.get("field") in ["document_number", "name"] for s in suspicious_regions))
+        and (
+            has_corroboration
+            or any(s.get("field") in ["document_number", "name", "mrz"] or s.get("source") == "mrz" for s in suspicious_regions)
+        )
     )
 
     is_supported = (
@@ -711,6 +735,15 @@ def compute_attack_hypotheses_and_severity(
             scores["text_edit"] += 0.65 * conf
         elif f == "photo":
             scores["photo_swap"] += 0.75 * conf
+        elif f == "mrz" or s_reg.get("source") == "mrz":
+            ev_str = str(s_reg.get("evidence", "")).lower()
+            if any(k in ev_str for k in ["date", "dob", "expiry", "birth"]):
+                scores["date_edit"] += 0.70 * conf
+            elif any(k in ev_str for k in ["doc", "number", "name", "id"]):
+                scores["text_edit"] += 0.70 * conf
+            else:
+                scores["text_edit"] += 0.50 * conf
+                scores["date_edit"] += 0.50 * conf
 
     # 3. Semantic checks
     for chk in semantic_checks:
@@ -728,6 +761,13 @@ def compute_attack_hypotheses_and_severity(
     # 5. Face verification
     if face_verification.get("has_face_check") and face_verification.get("verified") is False:
         scores["photo_swap"] += 0.80
+        # Physical-Biometric Synergy boost
+        has_photo_ela = any(
+            s.get("field") == "photo" and s.get("source") == "ela"
+            for s in suspicious_regions
+        )
+        if has_photo_ela:
+            scores["photo_swap"] += 0.40
 
     if attack_guess == "none":
         ranked = []
@@ -754,10 +794,20 @@ def compute_attack_hypotheses_and_severity(
             or (font_audit and font_audit.get("typography_verdict") == "SUSPECT_FONT_INCONSISTENCY")
             or (cm.get("detected") is True)
             or (face_verification.get("has_face_check") and face_verification.get("verified") is False)
+            or any(s.get("source") == "mrz" or s.get("field") == "mrz" for s in suspicious_regions)
+        )
+
+        has_photo_corroboration = (
+            face_verification.get("has_face_check")
+            and face_verification.get("verified") is False
+            and any(s.get("field") == "photo" and s.get("source") == "ela" for s in suspicious_regions)
         )
 
         if (
-            (attack_guess == "photo_swap" and face_verification.get("has_face_check") and face_verification.get("verified") is False and (face_verification.get("distance") or 0.0) >= 0.45)
+            (attack_guess == "photo_swap" and (
+                (face_verification.get("has_face_check") and face_verification.get("verified") is False and (face_verification.get("distance") or 0.0) >= 0.45)
+                or has_photo_corroboration
+            ))
             or (attack_guess == "copy_move" and cm.get("num_matches", 0) >= 30)
             or (attack_guess in ["date_edit", "text_edit"] and has_corroboration and attack_conf >= 0.80)
         ):
@@ -1228,3 +1278,45 @@ def export_unified_report(
         with open(json_path, "w", encoding="utf-8") as f:
             f.write(json_str)
     return json_str
+
+
+def validate_report_schema(report: Dict[str, Any]) -> Tuple[bool, List[str]]:
+    """
+    Validate that a report dictionary strictly adheres to Milestone 5 Schema 1.0.
+
+    Returns:
+        (is_valid, error_messages)
+    """
+    required_keys = [
+        "schema_version",
+        "document_id",
+        "document_type",
+        "executive_summary",
+        "quality",
+        "fields",
+        "semantic_checks",
+        "tamper_signals",
+        "face_verification",
+        "suspicious_regions",
+        "attack_type_guess",
+        "attack_type_confidence",
+        "attack_type_basis",
+        "secondary_attack_guess",
+        "secondary_attack_confidence",
+        "multi_attack_detected",
+        "attack_hypotheses_ranked",
+        "fraud_severity",
+        "risk_score",
+        "fraud_probability",
+        "decision",
+        "feature_vector",
+    ]
+    errors = []
+    for k in required_keys:
+        if k not in report:
+            errors.append(f"Missing required Schema 1.0 key: '{k}'")
+
+    if report.get("schema_version") != "1.0":
+        errors.append(f"Invalid schema_version '{report.get('schema_version')}', expected '1.0'")
+
+    return len(errors) == 0, errors
