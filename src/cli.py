@@ -1668,6 +1668,26 @@ def cmd_system_audit(args):
     return results
 
 
+def cmd_dashboard(args: argparse.Namespace) -> None:
+    """Launch the Milestone 7 Streamlit interactive examiner console."""
+    import subprocess
+    app_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "dashboard", "app.py")
+    port = str(args.port)
+    cmd = [sys.executable, "-m", "streamlit", "run", app_path, "--server.port", port]
+    if getattr(args, "headless", False):
+        cmd.append("--server.headless=true")
+    print("=" * 65)
+    print("ForgeLens-X — Milestone 7: Intelligent Examiner Console")
+    print("=" * 65)
+    print(f"Launching dashboard on port {port}...")
+    print(f"Application: {app_path}")
+    print("=" * 65)
+    try:
+        subprocess.run(cmd, check=True)
+    except KeyboardInterrupt:
+        print("\n[+] Dashboard stopped gracefully.")
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="forgelens-m1",
@@ -1803,6 +1823,11 @@ def main():
     sr_parser.add_argument("--prior", type=float, default=None, help="Operational prior fraud base rate (e.g. 0.05)")
     sr_parser.add_argument("--json", type=str, default=None, help="Optional export path for scoring contract JSON")
 
+    # --- Milestone 7: Interactive Examiner Dashboard ---
+    dash_parser = subparsers.add_parser("dashboard", help="Launch the Milestone 7 interactive explainable examiner dashboard")
+    dash_parser.add_argument("--port", type=int, default=8501, help="Port to bind dashboard server (default: 8501)")
+    dash_parser.add_argument("--headless", action="store_true", default=False, help="Run Streamlit in headless mode")
+
     # --- Master System Audit / Diagnostics ---
     sa_parser = subparsers.add_parser("system-audit", aliases=["diagnostics"], help="Run master system diagnostic & integration health audit across M1-M6")
     sa_parser.add_argument("--json", type=str, default=None, help="Optional output path to export diagnostic report JSON")
@@ -1833,6 +1858,7 @@ def main():
         "train-fusion": cmd_train_fusion,
         "evaluate-fusion": cmd_evaluate_fusion,
         "score-risk": cmd_score_risk,
+        "dashboard": cmd_dashboard,
         "system-audit": cmd_system_audit,
         "diagnostics": cmd_system_audit,
     }
