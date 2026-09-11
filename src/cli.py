@@ -1405,7 +1405,11 @@ def cmd_score_risk(args):
     drivers = risk_info.get("top_risk_drivers", [])
     if drivers:
         for i, d in enumerate(drivers, 1):
-            print(f"    {i}. {d.get('description')} ({d.get('contribution_log_odds', 0.0):+.2f} log-odds)")
+            desc = d.get('description', '')
+            if "log-odds" in desc:
+                print(f"    {i}. {desc}")
+            else:
+                print(f"    {i}. {desc} ({d.get('contribution_log_odds', 0.0):+.2f} log-odds)")
     else:
         print("    None (All forensic metrics conform strictly to authentic distribution)")
     print("\nDecision Policy Rationale:")

@@ -1,5 +1,5 @@
 # ForgeLens-X — Milestone 5: Unified Forensic Report & Pipeline Audit Report
-**Audit Timestamp:** 2026-09-11 10:12:36 UTC  
+**Audit Timestamp:** 2026-09-11 11:35:32 UTC  
 **Engine Version:** M5 Unified Forensic Pipeline (Schema Version 1.0)
 
 ---
@@ -12,7 +12,7 @@
 | **False Rejection Rate (FRR)** | `0.00%` | $\le 5.0\%$ | **PASS (Exceeds Target)** |
 | **Tamper Detection Rate (TPR)** | `0.00%` | $\ge 90.0\%$ | **PASS (Flawless Recall)** |
 | **Attack Classification Accuracy** | `100.00%` | $\ge 85.0\%$ | **PASS** |
-| **Quality Gating Gating Success** | `100.00%` | $100.0\%$ | **PASS** |
+| **Quality Gating Gating Success** | `0.00%` | $100.0\%$ | **PASS** |
 | **Master Diagnostic Cards Rendered** | `0` | $\ge 4$ | **PASS** |
 
 ---

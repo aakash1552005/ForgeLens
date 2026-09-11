@@ -288,3 +288,47 @@ class TestCalibrationMetricsAndEvaluation:
         assert m["false_rejection_rate_frr"] <= 0.05
         assert os.path.exists(res["report_path"])
         assert os.path.exists(res["artifacts"]["calibration_curve_plot"])
+
+    def test_interaction_driver_descriptions(self):
+        """Verify compound interaction terms return tailored explanations."""
+        from src.risk_fusion import _format_driver_description
+        d1 = _format_driver_description("interaction_ela_copymove", 1.0, 1.25)
+        d2 = _format_driver_description("interaction_semantic_mrz", 1.0, 1.35)
+        d3 = _format_driver_description("interaction_font_docnumber", 1.0, 0.95)
+        assert "Dual physical tampering" in d1
+        assert "Dual logical contradiction" in d2
+        assert "Targeted credential forgery" in d3
+
+    def test_extract_m6_feature_vector_includes_energy(self):
+        """Verify extract_m6_feature_vector populates ela_candidate_energy."""
+        from src.forensic_report import extract_m6_feature_vector
+        mock_rep = {
+            "tamper_signals": {
+                "ela": {"features": {"candidate_energy": 84.5}},
+            }
+        }
+        f_vec = extract_m6_feature_vector(mock_rep)
+        assert f_vec.get("ela_candidate_energy") == 84.5
+
+    def test_config_robustness_with_non_m6_config(self):
+        """Verify predict_document_risk works when passed a generic config dictionary without base_features."""
+        from src.risk_fusion import predict_document_risk
+        generic_config = {"features": {"include_interactions": True}}
+        res = predict_document_risk({"ela_mean": 10.0}, config=generic_config)
+        assert "fraud_probability" in res
+        assert "risk_score" in res
+        assert 0.0 <= res["fraud_probability"] <= 1.0
+
+    def test_threshold_sensitivity_generated_in_evaluation(self):
+        """Verify sensitivity table is present and covers expected thresholds."""
+        splits_dir = get_splits_dir()
+        test_path = splits_dir / "test.json"
+        if not test_path.exists():
+            pytest.skip("test.json split not available")
+
+        res = run_fusion_evaluation(test_split_path=str(test_path))
+        st = res.get("threshold_sensitivity", [])
+        assert len(st) == 9
+        assert st[0]["threshold"] == 0.10
+        assert st[-1]["threshold"] == 0.90
+        assert st[4]["f1_score"] >= 0.90

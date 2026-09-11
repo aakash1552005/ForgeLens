@@ -93,10 +93,12 @@ def get_feature_names(config: Optional[Dict[str, Any]] = None) -> List[str]:
     Get ordered list of learned forensic features for M6 model.
     Guaranteed to exclude any face verification signals.
     """
-    if config is None:
+    if config is None or "base_features" not in config.get("features", {}):
         config = load_m6_config()
     feat_cfg = config.get("features", {})
     base = list(feat_cfg.get("base_features", []))
+    if not base:
+        base = list(load_m6_config().get("features", {}).get("base_features", []))
     if feat_cfg.get("include_interactions", True):
         interactions = feat_cfg.get("interaction_features", [
             "interaction_ela_copymove", "interaction_semantic_mrz", "interaction_font_docnumber"
@@ -115,6 +117,7 @@ def get_feature_names(config: Optional[Dict[str, Any]] = None) -> List[str]:
 def extract_learned_features(
     feature_vector: Dict[str, Any],
     config: Optional[Dict[str, Any]] = None,
+    feature_names: Optional[List[str]] = None,
 ) -> np.ndarray:
     """
     Extract a numeric numpy feature vector from an M5 feature vector dict.
@@ -123,17 +126,21 @@ def extract_learned_features(
     Args:
         feature_vector: dictionary of extracted features from Milestone 5 report.
         config: optional M6 configuration dict.
+        feature_names: optional pre-specified list of feature names.
 
     Returns:
         1D float64 numpy array of ordered feature values.
     """
-    if config is None:
-        config = load_m6_config()
+    if feature_names is not None:
+        feat_names = feature_names
+    else:
+        if config is None or "base_features" not in config.get("features", {}):
+            config = load_m6_config()
+        feat_names = get_feature_names(config)
 
-    feat_names = get_feature_names(config)
     values = []
 
-    # Read base features with zero default
+    # Read base features with zero default and alias support
     for name in feat_names:
         if name == "interaction_ela_copymove":
             # Physical compound: ELA high error pixel ratio * Copy-Move keypoint matches
@@ -151,7 +158,20 @@ def extract_learned_features(
             v2 = float(feature_vector.get("semantic_doc_number_flag") or feature_vector.get("docnumber_format_flag") or 0.0)
             val = round(v1 * v2, 3)
         else:
-            raw_val = feature_vector.get(name, 0.0)
+            raw_val = feature_vector.get(name)
+            if raw_val is None:
+                # Check known aliases across pipeline milestones
+                if name == "copy_move_num_matches":
+                    raw_val = feature_vector.get("copy_move_matches", 0.0)
+                elif name == "font_inconsistency_flag":
+                    raw_val = feature_vector.get("font_inconsistent_flag", 0.0)
+                elif name == "semantic_doc_number_flag":
+                    raw_val = feature_vector.get("docnumber_format_flag", 0.0)
+                elif name == "ela_candidate_energy":
+                    raw_val = feature_vector.get("candidate_energy", 0.0)
+                else:
+                    raw_val = 0.0
+
             if raw_val is None or (isinstance(raw_val, float) and (np.isnan(raw_val) or np.isinf(raw_val))):
                 val = 0.0
             else:
@@ -441,18 +461,62 @@ def compute_log_odds_attribution(
 
 def _format_driver_description(feature: str, val: float, contrib: float) -> str:
     """Human-forensic translator for logistic regression risk drivers."""
-    if "ela" in feature:
-        return f"High Error Level Analysis anomaly energy / pixel compression mismatch (+{contrib:.2f} log-odds)"
-    elif "copy_move" in feature:
-        return f"Cloned motif detected via verified ORB keypoint correspondences (+{contrib:.2f} log-odds)"
+    # 1. Compound cross-modal interaction terms
+    if feature == "interaction_ela_copymove":
+        return f"Dual physical tampering: Coincident high ELA compression residue and cloned ORB keypoint clusters (+{contrib:.2f} log-odds)"
+    elif feature == "interaction_semantic_mrz":
+        return f"Dual logical contradiction: Identity chronology violation corroborated by ICAO MRZ checksum mismatch (+{contrib:.2f} log-odds)"
+    elif feature == "interaction_font_docnumber":
+        return f"Targeted credential forgery: Document number format discrepancy coupled with typographic stroke anomaly (+{contrib:.2f} log-odds)"
+
+    # 2. Cryptographic and Machine-Readable Zone (MRZ)
+    elif feature == "mrz_checksum_fail":
+        return f"Cryptographic ICAO Doc 9303 checksum failure on machine-readable zone (+{contrib:.2f} log-odds)"
+    elif feature == "mrz_viz_contradiction_flag":
+        return f"Discrepancy detected between machine-readable zone (MRZ) and visual zone (VIZ) (+{contrib:.2f} log-odds)"
     elif "mrz" in feature:
-        return f"Cryptographic ICAO Doc 9303 checksum or VIZ contradiction (+{contrib:.2f} log-odds)"
+        return f"Cryptographic ICAO Doc 9303 check digit anomaly (+{contrib:.2f} log-odds)"
+
+    # 3. Typography & Font Forensics
+    elif feature == "font_max_stroke_zscore":
+        return f"Abnormal typographic stroke-width variance exceeding character baseline (+{contrib:.2f} log-odds)"
+    elif feature == "font_inconsistency_flag":
+        return f"Typographic font variation detected across field character groups (+{contrib:.2f} log-odds)"
     elif "font" in feature:
         return f"Stroke-width typography outlier indicating character insertion (+{contrib:.2f} log-odds)"
+
+    # 4. Copy-Move Forensics
+    elif feature == "copy_move_detected" or feature == "copy_move_num_matches":
+        return f"Cloned motif detected via verified ORB keypoint correspondences (+{contrib:.2f} log-odds)"
+    elif "copy_move" in feature:
+        return f"Duplicated image patch detected with matched feature points (+{contrib:.2f} log-odds)"
+
+    # 5. Error Level Analysis (ELA)
+    elif feature == "ela_high_error_ratio":
+        return f"High fraction of abnormal pixel compression error in document canvas (+{contrib:.2f} log-odds)"
+    elif feature == "ela_candidate_energy":
+        return f"Localized compression artifact anomaly energy in high-error candidate bbox (+{contrib:.2f} log-odds)"
+    elif "ela" in feature:
+        return f"Error Level Analysis compression residue mismatch (+{contrib:.2f} log-odds)"
+
+    # 6. Metadata & Provenance
+    elif feature == "metadata_is_tampered":
+        return f"Digital forensics EXIF audit confirms editing tool provenance or stripped metadata (+{contrib:.2f} log-odds)"
     elif "metadata" in feature:
         return f"Image metadata indicates editing software alteration (+{contrib:.2f} log-odds)"
+
+    # 7. Semantic Identity Rules
+    elif feature == "semantic_date_order_flag":
+        return f"Impossible temporal sequence between birth, issue, and expiry dates (+{contrib:.2f} log-odds)"
+    elif feature == "semantic_impossible_date_flag":
+        return f"Calendar validation failure (e.g. invalid leap day or month > 12) (+{contrib:.2f} log-odds)"
+    elif feature == "semantic_contradiction_flag":
+        return f"Contradictory demographic or territorial indicators across credential fields (+{contrib:.2f} log-odds)"
+    elif feature == "semantic_doc_number_flag":
+        return f"Document number syntax/format violation for credential schema (+{contrib:.2f} log-odds)"
     elif "semantic" in feature:
-        return f"Logical identity chronology or document number rule violation (+{contrib:.2f} log-odds)"
+        return f"Logical identity chronology or document rule violation (+{contrib:.2f} log-odds)"
+
     return f"Forensic risk indicator '{feature}' elevated (+{contrib:.2f} log-odds)"
 
 
@@ -494,7 +558,7 @@ def predict_document_risk(
     clip_val = model_bundle.get("clip_val", 5.0)
 
     # 1. Extract feature array & scale
-    feat_arr = extract_learned_features(feature_vector, config=config).reshape(1, -1)
+    feat_arr = extract_learned_features(feature_vector, config=config, feature_names=feature_names).reshape(1, -1)
     feat_scaled = scaler.transform(feat_arr)[0]
     feat_scaled = np.clip(feat_scaled, -clip_val, clip_val)
 
@@ -520,6 +584,10 @@ def predict_document_risk(
     total_log_odds, contributions, top_drivers = compute_log_odds_attribution(
         feat_scaled, base_model, feature_names, top_k=3
     )
+
+    # For authentic low-risk documents (fraud_prob < 0.30), suppress spurious baseline noise drivers
+    if calibrated_prob < 0.30:
+        top_drivers = []
 
     return {
         "fraud_probability": calibrated_prob,
@@ -648,22 +716,25 @@ def apply_decision_policy(
 
     if has_face:
         if face_verified is False:
-            face_dist = float(face_verification.get("distance", 0.0) or 0.0)
-            if face_dist >= 0.70:
+            raw_dist = face_verification.get("distance")
+            face_dist = float(raw_dist) if raw_dist is not None else None
+            dist_desc = f"distance={face_dist:.2f}" if face_dist is not None else "face unverified/undetected"
+
+            if face_dist is not None and face_dist >= 0.70:
                 final_decision = "HIGH_RISK"
                 basis.append(
-                    f"Severe biometric face mismatch (distance={face_dist:.2f} >= 0.70) "
+                    f"Severe biometric face mismatch ({dist_desc} >= 0.70) "
                     "elevates disposition to HIGH_RISK."
                 )
             elif doc_risk_decision == "VERIFIED":
                 final_decision = "MANUAL_REVIEW"
                 basis.append(
-                    f"Biometric face mismatch (distance={face_dist:.2f}) "
+                    f"Biometric face mismatch ({dist_desc}) "
                     "overrides low document risk, elevating disposition to MANUAL_REVIEW."
                 )
             else:
                 basis.append(
-                    f"Biometric face mismatch (distance={face_dist:.2f}) "
+                    f"Biometric face mismatch ({dist_desc}) "
                     f"confirms identity dispute alongside {doc_risk_decision} document status."
                 )
         elif face_verified is True:

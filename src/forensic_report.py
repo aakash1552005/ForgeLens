@@ -846,6 +846,7 @@ def extract_m6_feature_vector(report: Dict[str, Any]) -> Dict[str, float]:
     f_vec["ela_p99"] = float(ela_feat.get("p99", 0.0))
     f_vec["ela_high_error_ratio"] = float(ela_feat.get("high_error_pixel_ratio", 0.0))
     f_vec["ela_candidate_confidence"] = float(report.get("tamper_signals", {}).get("ela", {}).get("confidence") or 0.0)
+    f_vec["ela_candidate_energy"] = float(ela_feat.get("candidate_energy", 0.0))
 
     # 2. Copy-Move Features
     cm = report.get("tamper_signals", {}).get("copy_move", {})
@@ -1252,10 +1253,12 @@ def generate_unified_forensic_report(
 
     # Step I: Milestone 6 — Calibrated Machine Learning Risk Fusion & Decision Policy
     try:
-        from src.risk_fusion import predict_document_risk, apply_decision_policy
-        risk_info = predict_document_risk(report["feature_vector"], config=config)
+        from src.risk_fusion import predict_document_risk, apply_decision_policy, load_m6_config
+        m6_cfg = load_m6_config()
+        risk_info = predict_document_risk(report["feature_vector"], config=m6_cfg)
         report["risk_score"] = risk_info.get("risk_score")
         report["fraud_probability"] = risk_info.get("fraud_probability")
+        report["risk_tier"] = risk_info.get("risk_tier")
         report["risk_drivers"] = risk_info.get("top_risk_drivers", [])
         report["log_odds_total"] = risk_info.get("log_odds_total", 0.0)
         report["risk_model_status"] = risk_info.get("model_status", "HEURISTIC_PRIOR_MODEL")
@@ -1265,9 +1268,10 @@ def generate_unified_forensic_report(
             fraud_probability=report["fraud_probability"] if report["fraud_probability"] is not None else 0.0,
             face_verification=face_verification,
             quality=quality,
-            config=config,
+            config=m6_cfg,
         )
         report["decision"] = final_decision
+        report["risk_tier"] = risk_tier
         report["decision_policy_basis"] = policy_basis
 
         # Update executive summary with calibrated risk score & final decision
@@ -1281,9 +1285,9 @@ def generate_unified_forensic_report(
             suspicious_regions_count=len(suspicious_regions),
             risk_score=report["risk_score"],
         )
-    except Exception:
+    except Exception as e:
         # Graceful fallback: retain M5 baseline fields without crash
-        pass
+        report["risk_fusion_warning"] = str(e)
 
     return report
 

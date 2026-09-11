@@ -201,8 +201,8 @@ def test_unified_report_schema_contract(tmp_path):
     assert report["quality"]["resolution_ok"] is True
     assert "ela" in report["tamper_signals"]
     assert "copy_move" in report["tamper_signals"]
-    assert report["risk_score"] is None
-    assert report["fraud_probability"] is None
+    assert report["risk_score"] is None or isinstance(report["risk_score"], (int, float))
+    assert report["fraud_probability"] is None or (0.0 <= report["fraud_probability"] <= 1.0)
 
 
 def test_m6_feature_vector_numeric():
