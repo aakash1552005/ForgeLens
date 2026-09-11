@@ -1,0 +1,76 @@
+# ForgeLens-X — Milestone 6 Configuration
+# Machine Learning Document-Risk Fusion & Calibrated Decision Policy
+
+model:
+  name: "logistic_regression"
+  C: 1.0
+  class_weight: "balanced"
+  solver: "lbfgs"
+  max_iter: 1000
+  random_state: 42
+  clip_scaled_features: 5.0
+
+calibration:
+  enabled: true
+  method: "auto"          # Automatically select between "sigmoid" and "isotonic" based on cal split Brier score
+  num_bins: 10            # Number of bins for Expected Calibration Error (ECE) and reliability diagrams
+  target_brier_score: 0.10
+  target_ece: 0.05
+
+decision_policy:
+  risk_threshold_low: 0.30   # Below this -> VERIFIED (if face matches or not supplied)
+  risk_threshold_high: 0.70  # Above this -> HIGH_RISK
+  # Between 0.30 and 0.70 -> MANUAL_REVIEW
+  severity_order:
+    - "VERIFIED"
+    - "MANUAL_REVIEW"
+    - "HIGH_RISK"
+  face_mismatch_floor: "MANUAL_REVIEW"
+  quality_gating_enabled: true
+
+features:
+  # Pure forensic & semantic features (strictly excluding face signals and quality presentation metrics)
+  base_features:
+    # ELA Features
+    - "ela_mean"
+    - "ela_std"
+    - "ela_max"
+    - "ela_p95"
+    - "ela_p99"
+    - "ela_high_error_ratio"
+    - "ela_candidate_energy"
+    # Copy-Move Features
+    - "copy_move_num_matches"
+    - "copy_move_confidence"
+    - "copy_move_detected"
+    # Semantic Rule Consistency Flags
+    - "semantic_failed_count"
+    - "semantic_date_order_flag"
+    - "semantic_impossible_date_flag"
+    - "semantic_age_sanity_flag"
+    - "semantic_doc_number_flag"
+    - "semantic_contradiction_flag"
+    - "semantic_country_code_flag"
+    # MRZ Cryptographic Features
+    - "mrz_checksum_pass"
+    - "mrz_checksum_fail"
+    - "mrz_has_data"
+    - "mrz_viz_contradiction_flag"
+    # Typography & EXIF Provenance
+    - "font_max_stroke_zscore"
+    - "font_inconsistency_flag"
+    - "metadata_is_tampered"
+    - "metadata_has_exif"
+
+  # Engineered Cross-Modality Interaction Terms
+  include_interactions: true
+  interaction_features:
+    - "interaction_ela_copymove"      # Physical compound: ela_high_error_ratio * copy_move_num_matches
+    - "interaction_semantic_mrz"       # Logical compound: semantic_failed_count * mrz_checksum_fail
+    - "interaction_font_docnumber"     # Text forgery compound: font_inconsistency_flag * semantic_doc_number_flag
+
+paths:
+  model_dir: "models/fusion"
+  model_file: "logistic_regression_m6.joblib"
+  scaler_file: "scaler_m6.joblib"
+  metadata_file: "m6_model_metadata.json"

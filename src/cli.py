@@ -1297,16 +1297,150 @@ def cmd_unified_eval(args):
     print("=" * 65)
 
 
+def cmd_train_fusion(args):
+    """
+    Train Milestone 6 Calibrated Machine Learning Risk Fusion Model.
+    Usage: py -m src.cli train-fusion [--train data/splits/train.json] [--cal data/splits/cal.json]
+    """
+    from src.risk_fusion import train_document_risk_model
+    from src.utils import get_splits_dir
+
+    train_path = getattr(args, "train", None) or str(get_splits_dir() / "train.json")
+    cal_path = getattr(args, "cal", None) or str(get_splits_dir() / "cal.json")
+
+    print("=" * 68)
+    print("ForgeLens-X — Milestone 6: Train Document-Risk Fusion Model")
+    print("=" * 68)
+    print(f"Train Split:       {train_path}")
+    print(f"Calibration Split: {cal_path}")
+    print("-" * 68)
+
+    meta = train_document_risk_model(train_split_path=train_path, cal_split_path=cal_path)
+    print("\n" + "=" * 68)
+    print("Milestone 6 Training Summary")
+    print("=" * 68)
+    print(f"  Selected Calibrator:   {meta['selected_calibration_method']}")
+    print(f"  Train ROC-AUC:         {meta['train_auc']:.4f}")
+    print(f"  Calibration Brier:     {meta['cal_brier_score']:.4f}")
+    print(f"  Trained Features:      {meta['num_features']}")
+    print(f"  Model Saved To:        {meta['model_path']}")
+    print("=" * 68)
+
+
+def cmd_evaluate_fusion(args):
+    """
+    Evaluate Milestone 6 Calibrated Risk Model on Untouched Test Split.
+    Usage: py -m src.cli evaluate-fusion [--test data/splits/test.json]
+    """
+    from src.fusion_evaluate import run_fusion_evaluation
+    from src.utils import get_splits_dir
+
+    test_path = getattr(args, "test", None) or str(get_splits_dir() / "test.json")
+
+    print("=" * 68)
+    print("ForgeLens-X — Milestone 6: Risk Fusion Test Evaluation")
+    print("=" * 68)
+    print(f"Test Partition: {test_path}")
+    print("-" * 68)
+
+    res = run_fusion_evaluation(test_split_path=test_path)
+    m = res["metrics"]
+    print("\n" + "=" * 68)
+    print("Milestone 6 Test Evaluation Results (Untouched Test Split)")
+    print("=" * 68)
+    print(f"  Total Test Samples:        {res['test_samples_evaluated']}")
+    print(f"  ROC-AUC:                   {m['roc_auc']:.4f} (Target > 0.95)")
+    print(f"  PR-AUC:                    {m['pr_auc']:.4f} (Target > 0.95)")
+    print(f"  Brier Calibration Score:   {m['brier_score']:.4f} (Target < 0.10)")
+    print(f"  Expected Calib Error (ECE):{m['expected_calibration_error_ece']:.4f} (Target < 0.05)")
+    print(f"  False Rejection Rate (FRR):{m['false_rejection_rate_frr']*100:.2f}% (Target <= 5%)")
+    print(f"  Tamper Detection Rate(TPR):{m['tamper_detection_rate_tpr']*100:.2f}%")
+    print(f"  F1 Score:                  {m['f1_score']:.4f}")
+    print(f"  Executive Audit Report:    {res['report_path']}")
+    print(f"  Summary Tabular CSV:       {res['artifacts']['summary_csv']}")
+    print(f"  Calibration Curve Plot:    {res['artifacts']['calibration_curve_plot']}")
+    print(f"  ROC/PR Curves Plot:        {res['artifacts']['roc_pr_curves_plot']}")
+    print("=" * 68)
+
+
+def cmd_score_risk(args):
+    """
+    Score Document Manipulation Risk with Calibrated Probability and Decision Policy.
+    Usage: py -m src.cli score-risk <image> [--face <selfie>] [--prior 0.05]
+    """
+    from src.forensic_report import generate_unified_forensic_report
+    from src.risk_fusion import predict_document_risk, apply_decision_policy
+
+    image_path = args.image
+    face_path = getattr(args, "face", None)
+    prior = getattr(args, "prior", None)
+
+    print("=" * 68)
+    print("ForgeLens-X — Milestone 6: Calibrated Document Risk Scoring")
+    print("=" * 68)
+    print(f"Document Image: {image_path}")
+    if face_path:
+        print(f"Reference Face: {face_path}")
+    if prior:
+        print(f"Operational Prior Base-Rate: {prior * 100:.1f}%")
+    print("-" * 68)
+
+    report = generate_unified_forensic_report(image_path, reference_face_path=face_path)
+    f_vec = report.get("feature_vector", {})
+    risk_info = predict_document_risk(f_vec, operational_prior=prior)
+
+    final_decision, risk_tier, basis = apply_decision_policy(
+        document_decision=report.get("decision", "VERIFIED"),
+        fraud_probability=risk_info["fraud_probability"],
+        face_verification=report.get("face_verification", {}),
+        quality=report.get("quality", {}),
+    )
+
+    print(f"  Calibrated Fraud Probability : {risk_info['fraud_probability']:.4f} ({risk_info['fraud_probability']*100:.1f}%)")
+    print(f"  Document Risk Score          : {risk_info['risk_score']:.1f} / 100.0")
+    print(f"  Risk Severity Tier           : {risk_tier}")
+    print(f"  Operational Decision         : {final_decision}")
+    print(f"  Model Engine Status          : {risk_info.get('model_status')}")
+    print("\nTop Explainable Risk Drivers (Log-Odds Attribution):")
+    drivers = risk_info.get("top_risk_drivers", [])
+    if drivers:
+        for i, d in enumerate(drivers, 1):
+            print(f"    {i}. {d.get('description')} ({d.get('contribution_log_odds', 0.0):+.2f} log-odds)")
+    else:
+        print("    None (All forensic metrics conform strictly to authentic distribution)")
+    print("\nDecision Policy Rationale:")
+    for b in basis:
+        print(f"    • {b}")
+    print("=" * 68)
+
+    if getattr(args, "json", None):
+        out_json = args.json
+        os.makedirs(os.path.dirname(os.path.abspath(out_json)), exist_ok=True)
+        export_data = {
+            "image": image_path,
+            "face": face_path,
+            "risk_score": risk_info["risk_score"],
+            "fraud_probability": risk_info["fraud_probability"],
+            "decision": final_decision,
+            "risk_tier": risk_tier,
+            "risk_drivers": drivers,
+            "policy_basis": basis,
+        }
+        with open(out_json, "w", encoding="utf-8") as f:
+            json.dump(export_data, f, indent=2)
+        print(f"[+] Risk scoring contract exported to: {out_json}")
+
+
 def cmd_system_audit(args):
     """
     Master System Diagnostic & Cross-Milestone Health Audit.
-    Runs comprehensive smoke verification across M1, M2, M3, M4, and M5.
+    Runs comprehensive smoke verification across M1, M2, M3, M4, M5, and M6.
     Usage: py -m src.cli system-audit [--json reports/system_audit.json]
     """
     print("=" * 68)
     print("ForgeLens-X — Master System Diagnostic & Integration Health Audit")
     print("=" * 68)
-    print("Benchmarking all subsystems (Milestones 1 through 5)...")
+    print("Benchmarking all subsystems (Milestones 1 through 6)...")
     print("-" * 68)
 
     t0_master = time.time()
@@ -1481,6 +1615,32 @@ def cmd_system_audit(args):
         "details": "; ".join(m5_details),
     }
 
+    # 6. Milestone 6: Calibrated ML Risk Fusion & Explainability
+    t0 = time.time()
+    m6_status = "PASS"
+    m6_details = []
+    try:
+        from src.risk_fusion import predict_document_risk, apply_decision_policy, get_feature_names
+        feats = get_feature_names()
+        mock_vec = {fn: 0.0 for fn in feats}
+        mock_vec["ela_high_error_ratio"] = 0.05
+        risk_res = predict_document_risk(mock_vec)
+        pol_dec, pol_tier, pol_basis = apply_decision_policy(
+            document_decision="VERIFIED",
+            fraud_probability=risk_res["fraud_probability"],
+        )
+        m6_details.append(f"Engine={risk_res['model_status']}; RiskScore={risk_res['risk_score']:.1f}; Tier={pol_tier}")
+        m6_details.append(f"Features={len(feats)}")
+    except Exception as e:
+        m6_status = "FAIL"
+        m6_details.append(f"Error: {e}")
+    m6_time = (time.time() - t0) * 1000
+    results["milestones"]["M6_Risk_Fusion_ML"] = {
+        "status": m6_status,
+        "latency_ms": round(m6_time, 2),
+        "details": "; ".join(m6_details),
+    }
+
     total_time = (time.time() - t0_master) * 1000
     overall_status = "PASS" if all(v["status"] == "PASS" for v in results["milestones"].values()) else "FAIL"
     results["status"] = overall_status
@@ -1507,7 +1667,7 @@ def cmd_system_audit(args):
 def main():
     parser = argparse.ArgumentParser(
         prog="forgelens-m1",
-        description="ForgeLens-X M1 — Synthetic Tamper + ELA + Copy-Move Pipeline",
+        description="ForgeLens-X — Multi-Modal Identity & Document Forensics Engine",
     )
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
@@ -1589,6 +1749,7 @@ def main():
     oe_parser.add_argument("--engine", type=str, default="rapidocr", choices=["rapidocr", "tesseract"], help="OCR engine")
     oe_parser.add_argument("--cards", type=int, default=4, help="Number of visual diagnostic explanation cards to generate")
     oe_parser.add_argument("--stress-test", action="store_true", help="Run multi-condition optical stress testing (blur, glare, underexposure, downsampling)")
+
     # --- Milestone 4: Semantic, MRZ & Typography Subcommands ---
 
     # semantic-check
@@ -1620,8 +1781,26 @@ def main():
     ue_parser.add_argument("--samples", type=int, default=15, help="Number of document samples to evaluate per attack category")
     ue_parser.add_argument("--cards", type=int, default=4, help="Number of master diagnostic cards to generate")
 
+    # --- Milestone 6: Machine Learning Risk Fusion Subcommands ---
+
+    # train-fusion
+    tf_parser = subparsers.add_parser("train-fusion", help="Train Milestone 6 calibrated risk fusion model")
+    tf_parser.add_argument("--train", type=str, default=None, help="Path to train split JSON (default: data/splits/train.json)")
+    tf_parser.add_argument("--cal", type=str, default=None, help="Path to cal split JSON (default: data/splits/cal.json)")
+
+    # evaluate-fusion
+    ef_parser = subparsers.add_parser("evaluate-fusion", help="Evaluate Milestone 6 calibrated risk model on untouched test split")
+    ef_parser.add_argument("--test", type=str, default=None, help="Path to test split JSON (default: data/splits/test.json)")
+
+    # score-risk
+    sr_parser = subparsers.add_parser("score-risk", help="Score document manipulation risk with calibrated probability and decision policy")
+    sr_parser.add_argument("image", type=str, help="Path to document image")
+    sr_parser.add_argument("--face", "--selfie", dest="face", type=str, default=None, help="Optional reference face image")
+    sr_parser.add_argument("--prior", type=float, default=None, help="Operational prior fraud base rate (e.g. 0.05)")
+    sr_parser.add_argument("--json", type=str, default=None, help="Optional export path for scoring contract JSON")
+
     # --- Master System Audit / Diagnostics ---
-    sa_parser = subparsers.add_parser("system-audit", aliases=["diagnostics"], help="Run master system diagnostic & integration health audit across M1-M5")
+    sa_parser = subparsers.add_parser("system-audit", aliases=["diagnostics"], help="Run master system diagnostic & integration health audit across M1-M6")
     sa_parser.add_argument("--json", type=str, default=None, help="Optional output path to export diagnostic report JSON")
 
     args = parser.parse_args()
@@ -1647,6 +1826,9 @@ def main():
         "semantic-eval": cmd_semantic_eval,
         "unified-screen": cmd_unified_screen,
         "unified-eval": cmd_unified_eval,
+        "train-fusion": cmd_train_fusion,
+        "evaluate-fusion": cmd_evaluate_fusion,
+        "score-risk": cmd_score_risk,
         "system-audit": cmd_system_audit,
         "diagnostics": cmd_system_audit,
     }

@@ -49,11 +49,11 @@ def _draw_header(card: np.ndarray, doc_id: str, decision: str, attack_type: str)
     cv2.putText(card, doc_str, (540, 27), cv2.FONT_HERSHEY_SIMPLEX, 0.48, TEXT_MUTED, 1, cv2.LINE_AA)
 
     # Decision badge
-    if decision == "CLEAR_AUTHENTIC":
+    if decision in ["CLEAR_AUTHENTIC", "VERIFIED"]:
         dec_color = GREEN
-    elif decision == "CRITICAL_FRAUD":
+    elif decision in ["CRITICAL_FRAUD", "HIGH_RISK"]:
         dec_color = RED
-    elif decision == "SUSPECT_TAMPERING":
+    elif decision in ["SUSPECT_TAMPERING", "MANUAL_REVIEW"]:
         dec_color = ORANGE
     elif decision == "INSUFFICIENT_EVIDENCE":
         dec_color = AMBER

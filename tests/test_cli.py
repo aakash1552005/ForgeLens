@@ -60,3 +60,39 @@ class TestCLI:
             assert "End-to-End Identity Screening" in captured.out
             assert "OVERALL SCREENING VERDICT:" in captured.out
             assert os.path.exists(out_card)
+
+    def test_train_fusion_cli(self, monkeypatch, capsys):
+        monkeypatch.setattr("sys.argv", ["forgelens-m1", "train-fusion"])
+        main()
+        captured = capsys.readouterr()
+        assert "Train Document-Risk Fusion Model" in captured.out
+        assert "Milestone 6 Training Summary" in captured.out
+
+    def test_evaluate_fusion_cli(self, monkeypatch, capsys):
+        monkeypatch.setattr("sys.argv", ["forgelens-m1", "evaluate-fusion"])
+        main()
+        captured = capsys.readouterr()
+        assert "Risk Fusion Test Evaluation" in captured.out
+        assert "ROC-AUC:" in captured.out
+
+    def test_score_risk_cli(self, monkeypatch, capsys):
+        from src.utils import get_generated_dir
+        sample = get_generated_dir() / "images" / "src_0000_genuine.jpg"
+        if not sample.exists():
+            pytest.skip("Sample genuine doc not generated")
+
+        monkeypatch.setattr("sys.argv", ["forgelens-m1", "score-risk", str(sample)])
+        main()
+        captured = capsys.readouterr()
+        assert "Calibrated Document Risk Scoring" in captured.out
+        assert "Calibrated Fraud Probability" in captured.out
+        assert "Operational Decision" in captured.out
+
+    def test_system_audit_cli(self, monkeypatch, capsys):
+        monkeypatch.setattr("sys.argv", ["forgelens-m1", "system-audit"])
+        main()
+        captured = capsys.readouterr()
+        assert "Master System Diagnostic & Integration Health Audit" in captured.out
+        assert "M6_Risk_Fusion_ML" in captured.out
+        assert "Overall System Health : PASS" in captured.out
+

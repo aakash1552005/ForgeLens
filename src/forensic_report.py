@@ -933,12 +933,14 @@ def generate_executive_summary(
     quality: Dict[str, Any],
     secondary_attack: Optional[str] = None,
     suspicious_regions_count: int = 0,
+    risk_score: Optional[float] = None,
 ) -> str:
     """Produce concise, unambiguous one-line executive verdict for audits."""
-    if decision == "CLEAR_AUTHENTIC":
+    risk_clause = f" (calibrated risk: {risk_score:.1f}/100)" if risk_score is not None else ""
+    if decision in ["CLEAR_AUTHENTIC", "VERIFIED"]:
         return (
-            f"AUTHENTIC: Document verified with high scan fidelity "
-            f"(sharpness={quality.get('blur_score', 0.0):.1f}) and zero corroborated "
+            f"AUTHENTIC (VERIFIED): Document verified with high scan fidelity "
+            f"(sharpness={quality.get('blur_score', 0.0):.1f}){risk_clause} and zero corroborated "
             f"physical, typographic, biometric, or semantic anomalies."
         )
     elif decision == "INSUFFICIENT_EVIDENCE":
@@ -947,11 +949,16 @@ def generate_executive_summary(
             f"INSUFFICIENT EVIDENCE: Scan quality is degraded ({q_reasons}); "
             f"recommend requesting a high-resolution optical rescan before definitive fraud disposition."
         )
-    elif decision in ["SUSPECT_TAMPERING", "CRITICAL_FRAUD"]:
+    elif decision == "MANUAL_REVIEW":
+        return (
+            f"MANUAL REVIEW REQUIRED: Borderline forensic indicators or biometric dispute{risk_clause} "
+            f"require secondary human examiner inspection."
+        )
+    elif decision in ["SUSPECT_TAMPERING", "CRITICAL_FRAUD", "HIGH_RISK"]:
         sec_clause = f" with co-occurring {secondary_attack.upper()} manipulation" if secondary_attack else ""
         return (
-            f"{fraud_severity} FRAUD: Corroborated {attack_guess.upper()} tampering detected "
-            f"({attack_conf * 100:.1f}% confidence, {suspicious_regions_count} suspicious region(s)){sec_clause}."
+            f"{fraud_severity} FRAUD (HIGH RISK): Corroborated {attack_guess.upper()} tampering detected "
+            f"({attack_conf * 100:.1f}% confidence, {suspicious_regions_count} suspicious region(s){risk_clause}){sec_clause}."
         )
     return "REVIEW RECOMMENDED: Borderline forensic indicators require secondary examiner inspection."
 
@@ -1242,6 +1249,41 @@ def generate_unified_forensic_report(
 
     # Step H: Pre-extract turnkey M6 feature vector
     report["feature_vector"] = extract_m6_feature_vector(report)
+
+    # Step I: Milestone 6 — Calibrated Machine Learning Risk Fusion & Decision Policy
+    try:
+        from src.risk_fusion import predict_document_risk, apply_decision_policy
+        risk_info = predict_document_risk(report["feature_vector"], config=config)
+        report["risk_score"] = risk_info.get("risk_score")
+        report["fraud_probability"] = risk_info.get("fraud_probability")
+        report["risk_drivers"] = risk_info.get("top_risk_drivers", [])
+        report["log_odds_total"] = risk_info.get("log_odds_total", 0.0)
+        report["risk_model_status"] = risk_info.get("model_status", "HEURISTIC_PRIOR_MODEL")
+
+        final_decision, risk_tier, policy_basis = apply_decision_policy(
+            document_decision=decision,
+            fraud_probability=report["fraud_probability"] if report["fraud_probability"] is not None else 0.0,
+            face_verification=face_verification,
+            quality=quality,
+            config=config,
+        )
+        report["decision"] = final_decision
+        report["decision_policy_basis"] = policy_basis
+
+        # Update executive summary with calibrated risk score & final decision
+        report["executive_summary"] = generate_executive_summary(
+            decision=final_decision,
+            attack_guess=attack_guess,
+            attack_conf=attack_conf,
+            fraud_severity=hypo_info["fraud_severity"],
+            quality=quality,
+            secondary_attack=hypo_info["secondary_attack_guess"] if hypo_info["multi_attack_detected"] else None,
+            suspicious_regions_count=len(suspicious_regions),
+            risk_score=report["risk_score"],
+        )
+    except Exception:
+        # Graceful fallback: retain M5 baseline fields without crash
+        pass
 
     return report
 

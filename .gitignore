@@ -19,6 +19,7 @@ models/
 
 # Reports (measured results, regenerated)
 reports/*.json
+reports/scratch/
 
 # IDE
 .vscode/
