@@ -34,19 +34,28 @@ def create_16_section_deck():
     blank_layout = prs.slide_layouts[6]
 
     slides_data = [
-        # Slide 1: Title & Problem Statement
+        # Slide 1: Title & VeloHack Project Submission
         {
-            "tag": "MINISTRY OF HOME AFFAIRS · PS ID 23",
-            "title": "ForgeLens-X: Explainable Document Forensics",
+            "tag": "VELOHACK 26 · PROJECT SUBMISSION — ROUND 1",
+            "title": "ForgeLens-X: Document Authenticity Console",
             "subtitle": "AI-Assisted Identity Document Forensic Screening & Tamper Detection System",
             "items": [
-                ("Problem Statement ID", "23 (Ministry of Home Affairs - MHA)"),
-                ("Problem Statement Title", "ForgeLens: AI-Assisted Forensic Document Tamper Detection"),
-                ("Domain & Theme", "Smart Automation / National Security / Border Intelligence"),
+                ("Team Name", "LOGICAI"),
+                ("Track", "Open Innovation"),
+                ("Members", "Aakash S S, Rahul S, Krithik Kumar S, Nishanth G"),
+                ("College", "Vel Tech Rangarajan Dr.Sagunthala R&D Institute of Science and Technology"),
+                ("Theme & Mission", "Smart Automation / National Security / Border Intelligence"),
                 ("Core Mission", "Detect photo swaps, altered dates, forged stamps, and reused identities"),
-                ("Live System URLs", "https://forgelens.streamlit.app | API @ :8000/docs"),
-                ("Empirical Backing", "265/265 Tests Passing | AUROC: 0.9842 | Brier Calibration: 0.0412")
+                ("Tagline", "CODE TODAY · CHANGE TOMORROW | Live Console: https://forgelens.streamlit.app")
             ]
+        },
+        # Slide 1b: Team Details
+        {
+            "tag": "SECTION 06 · TEAM DETAILS",
+            "title": "Team Details & Roles",
+            "subtitle": "Team LOGICAI — Vel Tech Rangarajan Dr.Sagunthala R&D Institute of Science and Technology",
+            "is_team_table": True,
+            "items": []
         },
         # Slide 2: Abstract
         {
@@ -299,31 +308,75 @@ def create_16_section_deck():
         card_shape.line.color.rgb = COLOR_CARD_BORDER
         card_shape.line.width = Pt(1.5)
 
-        # Text Frame inside Card
-        content_box = slide.shapes.add_textbox(Inches(1.1), Inches(1.85), Inches(11.1), Inches(5.0))
-        tf_content = content_box.text_frame
-        tf_content.word_wrap = True
+        if data.get("is_team_table"):
+            # Render Team Details Table
+            table_shape = slide.shapes.add_table(5, 5, Inches(1.1), Inches(2.0), Inches(11.1), Inches(3.6))
+            table = table_shape.table
+            col_widths = [Inches(2.0), Inches(3.2), Inches(1.4), Inches(2.9), Inches(1.6)]
+            for col_idx, width in enumerate(col_widths):
+                table.columns[col_idx].width = width
 
-        for idx, (label, detail) in enumerate(data["items"]):
-            p = tf_content.add_paragraph() if idx > 0 else tf_content.paragraphs[0]
-            p.space_after = Pt(10)
+            headers = ["NAME", "ROLE", "YEAR / DEPT.", "EMAIL", "PHONE"]
+            for col_idx, h_text in enumerate(headers):
+                cell = table.cell(0, col_idx)
+                cell.fill.solid()
+                cell.fill.fore_color.rgb = COLOR_DARK
+                p = cell.text_frame.paragraphs[0]
+                p.text = h_text
+                p.font.size = Pt(12)
+                p.font.bold = True
+                p.font.color.rgb = RGBColor(255, 255, 255)
 
-            run_bullet = p.add_run()
-            run_bullet.text = "▪ "
-            run_bullet.font.size = Pt(13)
-            run_bullet.font.bold = True
-            run_bullet.font.color.rgb = COLOR_PRIMARY
+            team_members = [
+                ("Aakash S S", "Team Lead & Tamper Detection", "IV / CSE", "aakash1552005@gmail.com", "8825909003"),
+                ("Rahul S", "Face Verification & OCR", "IV / CSE", "rahulsaravanan.2006@gmail.com", "9176067718"),
+                ("Krithik Kumar S", "Semantic Validation & MRZ", "IV / CSE", "krithiks1102@gmail.com", "6382172818"),
+                ("Nishanth G", "Risk Fusion & Dashboard", "IV / CSE", "nishanthcse910@gmail.com", "9042516483"),
+            ]
+            for row_idx, member in enumerate(team_members, start=1):
+                bg_col = RGBColor(255, 255, 255) if row_idx % 2 == 1 else RGBColor(241, 245, 249)
+                for col_idx, val in enumerate(member):
+                    cell = table.cell(row_idx, col_idx)
+                    cell.fill.solid()
+                    cell.fill.fore_color.rgb = bg_col
+                    p = cell.text_frame.paragraphs[0]
+                    p.text = val
+                    p.font.size = Pt(11)
+                    p.font.color.rgb = COLOR_TEXT_MAIN
 
-            run_label = p.add_run()
-            run_label.text = f"{label}: "
-            run_label.font.size = Pt(13)
-            run_label.font.bold = True
-            run_label.font.color.rgb = COLOR_DARK
+            # Note footer
+            note_box = slide.shapes.add_textbox(Inches(1.1), Inches(6.0), Inches(11.1), Inches(0.5))
+            p_note = note_box.text_frame.paragraphs[0]
+            p_note.text = "│ Every participant can be part of only ONE team. Team size must be 3-4 members."
+            p_note.font.size = Pt(11)
+            p_note.font.color.rgb = RGBColor(217, 119, 6)
+            p_note.font.italic = True
+        else:
+            # Text Frame inside Card
+            content_box = slide.shapes.add_textbox(Inches(1.1), Inches(1.85), Inches(11.1), Inches(5.0))
+            tf_content = content_box.text_frame
+            tf_content.word_wrap = True
 
-            run_detail = p.add_run()
-            run_detail.text = detail
-            run_detail.font.size = Pt(13)
-            run_detail.font.color.rgb = COLOR_TEXT_MAIN
+            for idx, (label, detail) in enumerate(data["items"]):
+                p = tf_content.add_paragraph() if idx > 0 else tf_content.paragraphs[0]
+                p.space_after = Pt(10)
+
+                run_bullet = p.add_run()
+                run_bullet.text = "▪ "
+                run_bullet.font.size = Pt(13)
+                run_bullet.font.bold = True
+                run_bullet.font.color.rgb = COLOR_PRIMARY
+
+                run_label = p.add_run()
+                run_label.text = f"{label}: "
+                run_label.font.size = Pt(13)
+                run_label.font.bold = True
+                run_label.font.color.rgb = COLOR_DARK
+
+                run_detail = p.add_run()
+                run_detail.text = detail
+                run_detail.font.size = Pt(13)
+                run_detail.font.color.rgb = COLOR_TEXT_MAIN
 
     output_path = os.path.join(DESKTOP_DIR, "ForgeLens-X_Complete_16Section_Presentation.pptx")
     prs.save(output_path)
