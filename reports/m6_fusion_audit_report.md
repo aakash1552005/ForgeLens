@@ -10,8 +10,8 @@ Milestone 6 evaluates the machine learning fusion layer combining physical (M1),
 * **Zero-Leakage Benchmark**: Evaluated on `10` untouched test partition samples (source identities strictly disjoint from training split).
 * **Discrimination**: **ROC-AUC = `1.0000`**, **PR-AUC = `1.0000`**.
 * **Probability Calibration Quality**:
-  * **Brier Score = `0.0063`** (Target $< 0.10$ achieved).
-  * **Expected Calibration Error (ECE) = `0.0493`** (Target $< 0.05$ achieved).
+  * **Brier Score = `0.0045`** (Target $< 0.10$ achieved).
+  * **Expected Calibration Error (ECE) = `0.0392`** (Target $< 0.05$ achieved).
 * **Operational Performance**:
   * **False Rejection Rate (FRR) = `0.00%`** (Target $\le 5.0\%$).
   * **Tamper Detection Rate (TPR) = `100.00%`**.
@@ -35,7 +35,7 @@ Operational performance across candidate decision thresholds $\tau \in [0.10, 0.
 
 | Threshold ($\tau$) | Tamper Recall (TPR) | False Rejection (FRR) | Precision | F1-Score | True Pos (TP) | False Pos (FP) |
 | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| `0.10` | **`100.0%`** | `100.0%` | `80.0%` | `0.8889` | `8` | `2` |
+| `0.10` | **`100.0%`** | `50.0%` | `88.9%` | `0.9412` | `8` | `1` |
 | `0.20` | **`100.0%`** | `0.0%` | `100.0%` | `1.0000` | `8` | `0` |
 | `0.30` | **`100.0%`** | `0.0%` | `100.0%` | `1.0000` | `8` | `0` |
 | `0.40` | **`100.0%`** | `0.0%` | `100.0%` | `1.0000` | `8` | `0` |
@@ -43,7 +43,7 @@ Operational performance across candidate decision thresholds $\tau \in [0.10, 0.
 | `0.60` | **`100.0%`** | `0.0%` | `100.0%` | `1.0000` | `8` | `0` |
 | `0.70` | **`100.0%`** | `0.0%` | `100.0%` | `1.0000` | `8` | `0` |
 | `0.80` | **`100.0%`** | `0.0%` | `100.0%` | `1.0000` | `8` | `0` |
-| `0.90` | **`87.5%`** | `0.0%` | `100.0%` | `0.9333` | `7` | `0` |
+| `0.90` | **`100.0%`** | `0.0%` | `100.0%` | `1.0000` | `8` | `0` |
 
 > **Operating Point Guidance**:
 > * **Standard Balanced Disposition ($\tau = 0.30 - 0.70$)**: Automatically verifies documents with $p < 0.30$, refers $[0.30, 0.70)$ to manual review, and flags $\ge 0.70$ as high risk.
@@ -78,16 +78,16 @@ As enforced by the locked architecture:
 
 | Source ID | Attack Modality | Ground Truth | Fraud Probability | Risk Score | Decision | Primary Risk Driver |
 | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
-| `src_0001` | `none` | `genuine` | `0.160` | `16.0` | `VERIFIED` | Authentic baseline (negligible fraud risk) |
+| `src_0001` | `none` | `genuine` | `0.154` | `15.4` | `VERIFIED` | Authentic baseline (negligible fraud risk) |
 | `src_0001` | `date_edit` | `tampered` | `1.000` | `100.0` | `HIGH_RISK` | Abnormal typographic stroke-width variance exceedi... |
 | `src_0001` | `text_edit` | `tampered` | `1.000` | `100.0` | `HIGH_RISK` | Abnormal typographic stroke-width variance exceedi... |
 | `src_0001` | `photo_swap` | `tampered` | `1.000` | `100.0` | `HIGH_RISK` | Abnormal typographic stroke-width variance exceedi... |
-| `src_0001` | `copy_move` | `tampered` | `1.000` | `100.0` | `HIGH_RISK` | Error Level Analysis compression residue mismatch ... |
-| `src_0000` | `none` | `genuine` | `0.103` | `10.3` | `VERIFIED` | Authentic baseline (negligible fraud risk) |
-| `src_0000` | `date_edit` | `tampered` | `0.902` | `90.2` | `HIGH_RISK` | Cloned motif detected via verified ORB keypoint co... |
-| `src_0000` | `text_edit` | `tampered` | `1.000` | `100.0` | `HIGH_RISK` | Cloned motif detected via verified ORB keypoint co... |
-| `src_0000` | `photo_swap` | `tampered` | `0.868` | `86.8` | `HIGH_RISK` | Cloned motif detected via verified ORB keypoint co... |
-| `src_0000` | `copy_move` | `tampered` | `1.000` | `100.0` | `HIGH_RISK` | Error Level Analysis compression residue mismatch ... |
+| `src_0001` | `copy_move` | `tampered` | `1.000` | `100.0` | `HIGH_RISK` | Duplicated security motif detected with 489 matche... |
+| `src_0000` | `none` | `genuine` | `0.099` | `9.9` | `VERIFIED` | Authentic baseline (negligible fraud risk) |
+| `src_0000` | `date_edit` | `tampered` | `0.901` | `90.1` | `HIGH_RISK` | Conforms to authentic distribution |
+| `src_0000` | `text_edit` | `tampered` | `1.000` | `100.0` | `HIGH_RISK` | Conforms to authentic distribution |
+| `src_0000` | `photo_swap` | `tampered` | `0.960` | `96.0` | `HIGH_RISK` | Physical cut-and-paste seam detected along portrai... |
+| `src_0000` | `copy_move` | `tampered` | `1.000` | `100.0` | `HIGH_RISK` | Duplicated security motif detected with 565 matche... |
 
 ---
 *ForgeLens-X Automated Forensic Engine — Milestone 6 Certified*

@@ -20,6 +20,7 @@ import os
 import tempfile
 from io import BytesIO
 
+import cv2
 import numpy as np
 from PIL import Image, ImageChops
 
@@ -188,8 +189,16 @@ def anomaly_map(
     Returns:
         np.ndarray: anomaly map (float32, non-negative)
     """
-    std_map = np.maximum(baseline["std_map"], min_std)
-    threshold_map = baseline["mean_map"] + k * std_map
+    mean_map = baseline["mean_map"]
+    std_map = baseline["std_map"]
+
+    h, w = ela_heatmap.shape[:2]
+    if mean_map.shape != (h, w):
+        mean_map = cv2.resize(mean_map, (w, h), interpolation=cv2.INTER_LINEAR)
+        std_map = cv2.resize(std_map, (w, h), interpolation=cv2.INTER_LINEAR)
+
+    std_map = np.maximum(std_map, min_std)
+    threshold_map = mean_map + k * std_map
     anom = ela_heatmap - threshold_map
     anom = np.maximum(anom, 0.0)
     return anom.astype(np.float32)

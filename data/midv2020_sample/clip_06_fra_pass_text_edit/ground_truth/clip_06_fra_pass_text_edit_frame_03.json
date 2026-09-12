@@ -1,0 +1,44 @@
+{
+  "doc_type": "fra_pass_text_edit",
+  "doc_category": "passport",
+  "country": "FRA",
+  "source_clip_id": "clip_06_fra_pass_text_edit",
+  "frame_id": 3,
+  "quad": [
+    [
+      87,
+      62
+    ],
+    [
+      885,
+      70
+    ],
+    [
+      871,
+      567
+    ],
+    [
+      93,
+      548
+    ]
+  ],
+  "attack_type": "text_edit",
+  "is_presentation_attack": false,
+  "fields": {
+    "name": {
+      "value": "LUCAS MOREAU"
+    },
+    "dob": {
+      "value": "11/09/1980"
+    },
+    "document_number": {
+      "value": "2001948201"
+    },
+    "issue_date": {
+      "value": "05/05/2017"
+    },
+    "expiry_date": {
+      "value": "05/05/2027"
+    }
+  }
+}

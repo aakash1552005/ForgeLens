@@ -1,0 +1,7 @@
+document_id,filename,status,decision,risk_score,fraud_probability,attack_type_guess,suspicious_count,pipeline_latency_ms,error
+BATCH-0002,passport_02_original.jpg,PASS,VERIFIED,0.0,0.0,none,0,6072.3,
+BATCH-0001,passport_01_original.jpg,PASS,VERIFIED,0.0,0.0,none,0,7010.5,
+BATCH-0003,passport_03_original.jpg,PASS,VERIFIED,0.0,0.0,none,0,2934.9,
+BATCH-0004,passport_04_original.jpg,PASS,VERIFIED,0.0,0.0,none,0,2512.1,
+BATCH-0005,passport_04_selfie_genuine.jpg,FAIL,HIGH_RISK,100.0,1.0,none,0,752.4,
+BATCH-0006,passport_05_original.jpg,PASS,VERIFIED,0.0,0.0,none,0,1246.6,

@@ -1,0 +1,44 @@
+{
+  "doc_type": "gbr_pass_screen_replay",
+  "doc_category": "passport",
+  "country": "GBR",
+  "source_clip_id": "clip_02_gbr_pass_screen_replay",
+  "frame_id": 1,
+  "quad": [
+    [
+      82,
+      52
+    ],
+    [
+      887,
+      83
+    ],
+    [
+      872,
+      578
+    ],
+    [
+      92,
+      547
+    ]
+  ],
+  "attack_type": "screen_replay",
+  "is_presentation_attack": true,
+  "fields": {
+    "name": {
+      "value": "OLIVER SMITH"
+    },
+    "dob": {
+      "value": "08/11/1992"
+    },
+    "document_number": {
+      "value": "948201928"
+    },
+    "issue_date": {
+      "value": "01/09/2021"
+    },
+    "expiry_date": {
+      "value": "01/09/2031"
+    }
+  }
+}

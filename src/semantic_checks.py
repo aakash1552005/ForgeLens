@@ -397,7 +397,7 @@ def check_document_number_format(
     elif doc_type == "forgelensia":
         regex = r"^FGL-\d{6}-\d{2}$"
     elif doc_type == "passport":
-        regex = r"^[A-Z0-9<]{8,10}$"
+        regex = r"^(FGL-\d{6}-\d{2}|[A-Z0-9<]{8,12}|[A-Z0-9\-]{8,15})$"
     else:
         regex = r"^[A-Z0-9\-_]{5,20}$"
 

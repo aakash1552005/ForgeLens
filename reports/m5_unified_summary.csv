@@ -1,5 +1,5 @@
 doc_id,category,ground_truth_attack,predicted_attack,attack_confidence,decision,reliability,blur_score,suspicious_regions_count,is_correct_attack,is_false_alarm,card_path
 src_0000,genuine,none,none,0.0,VERIFIED,HIGH,3544.4,1,True,False,
 src_0001,genuine,none,none,0.0,VERIFIED,HIGH,3615.77,1,True,False,
-degraded_sample_0,degraded_blurry,none,none,0.0,MANUAL_REVIEW,LOW,3.23,0,True,False,
-degraded_sample_1,degraded_blurry,none,none,0.0,MANUAL_REVIEW,LOW,2.49,0,True,False,
+degraded_sample_0,degraded_blurry,none,none,0.0,HIGH_RISK,LOW,3.23,1,True,False,
+degraded_sample_1,degraded_blurry,none,none,0.0,HIGH_RISK,LOW,2.49,1,True,False,

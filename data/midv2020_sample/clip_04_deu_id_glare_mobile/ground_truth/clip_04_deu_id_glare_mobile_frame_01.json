@@ -1,0 +1,44 @@
+{
+  "doc_type": "deu_id_glare_mobile",
+  "doc_category": "id_card",
+  "country": "DEU",
+  "source_clip_id": "clip_04_deu_id_glare_mobile",
+  "frame_id": 1,
+  "quad": [
+    [
+      83,
+      66
+    ],
+    [
+      886,
+      80
+    ],
+    [
+      870,
+      577
+    ],
+    [
+      99,
+      551
+    ]
+  ],
+  "attack_type": "genuine",
+  "is_presentation_attack": false,
+  "fields": {
+    "name": {
+      "value": "LUKAS WEBER"
+    },
+    "dob": {
+      "value": "14/02/1991"
+    },
+    "document_number": {
+      "value": "L89201948"
+    },
+    "issue_date": {
+      "value": "20/10/2020"
+    },
+    "expiry_date": {
+      "value": "20/10/2030"
+    }
+  }
+}

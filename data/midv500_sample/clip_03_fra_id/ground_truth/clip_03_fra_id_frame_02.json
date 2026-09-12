@@ -1,0 +1,44 @@
+{
+  "doc_type": "fra_id",
+  "doc_category": "id_card",
+  "country": "FRA",
+  "source_clip_id": "clip_03_fra_id",
+  "frame_id": 2,
+  "quad": [
+    [
+      63,
+      50
+    ],
+    [
+      901,
+      60
+    ],
+    [
+      887,
+      589
+    ],
+    [
+      74,
+      567
+    ]
+  ],
+  "attack_type": "genuine",
+  "is_presentation_attack": false,
+  "fields": {
+    "name": {
+      "value": "JEAN BOURGEOIS"
+    },
+    "dob": {
+      "value": "18/02/1975"
+    },
+    "document_number": {
+      "value": "180275819201"
+    },
+    "issue_date": {
+      "value": "14/09/2016"
+    },
+    "expiry_date": {
+      "value": "14/09/2031"
+    }
+  }
+}

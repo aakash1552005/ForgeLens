@@ -1,0 +1,44 @@
+{
+  "doc_type": "usa_passport",
+  "doc_category": "passport",
+  "country": "USA",
+  "source_clip_id": "clip_02_usa_passport",
+  "frame_id": 2,
+  "quad": [
+    [
+      57,
+      45
+    ],
+    [
+      895,
+      63
+    ],
+    [
+      882,
+      583
+    ],
+    [
+      71,
+      571
+    ]
+  ],
+  "attack_type": "genuine",
+  "is_presentation_attack": false,
+  "fields": {
+    "name": {
+      "value": "JOHNATHAN DOE"
+    },
+    "dob": {
+      "value": "22/08/1990"
+    },
+    "document_number": {
+      "value": "530291847"
+    },
+    "issue_date": {
+      "value": "14/01/2020"
+    },
+    "expiry_date": {
+      "value": "13/01/2030"
+    }
+  }
+}

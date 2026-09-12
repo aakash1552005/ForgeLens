@@ -1,0 +1,44 @@
+{
+  "doc_type": "esp_dl",
+  "doc_category": "driving_license",
+  "country": "ESP",
+  "source_clip_id": "clip_05_esp_dl",
+  "frame_id": 1,
+  "quad": [
+    [
+      60,
+      52
+    ],
+    [
+      904,
+      67
+    ],
+    [
+      886,
+      586
+    ],
+    [
+      77,
+      571
+    ]
+  ],
+  "attack_type": "genuine",
+  "is_presentation_attack": false,
+  "fields": {
+    "name": {
+      "value": "CARLOS GARCIA"
+    },
+    "dob": {
+      "value": "30/10/1983"
+    },
+    "document_number": {
+      "value": "ES-94029184"
+    },
+    "issue_date": {
+      "value": "11/02/2019"
+    },
+    "expiry_date": {
+      "value": "11/02/2029"
+    }
+  }
+}

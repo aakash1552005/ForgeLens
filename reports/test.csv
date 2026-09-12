@@ -1,0 +1,2 @@
+pair_id,label,is_same_person,subject_doc,subject_live,demographic,model,distance_metric,distance,threshold,similarity_pct,verified,verdict_tier,correct_decision,error
+test_01,genuine,True,,,,,,0.25,0.68,92.0,True,CONFIRMED_MATCH,True,

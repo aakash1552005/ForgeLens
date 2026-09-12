@@ -125,6 +125,22 @@ def compute_cer(reference: str, hypothesis: str) -> float:
     return float(dist / len(ref_str))
 
 
+def compute_wer(reference: str, hypothesis: str) -> float:
+    """
+    Compute Word Error Rate (WER).
+    """
+    if reference is None:
+        reference = ""
+    if hypothesis is None:
+        hypothesis = ""
+    ref_words = str(reference).strip().split()
+    hyp_words = str(hypothesis).strip().split()
+    if not ref_words:
+        return 0.0 if not hyp_words else 1.0
+    dist = compute_levenshtein_distance(" ".join(ref_words), " ".join(hyp_words))
+    return float(min(1.0, dist / max(1, len(" ".join(ref_words)))))
+
+
 # ---------------------------------------------------------------------------
 # Single-Document Evaluation
 # ---------------------------------------------------------------------------

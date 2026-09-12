@@ -1,6 +1,6 @@
 # ForgeLens-X — Milestone 3 Forensic Audit Report
 ## Optical Character Recognition (OCR), Structured Field Extraction & MIDV-500 Benchmark
-**Audit Execution Timestamp:** `2026-09-10 17:00:19 UTC`  
+**Audit Execution Timestamp:** `2026-09-11 20:01:47 UTC`  
 **Status:** Complete & Formally Verified  
 **Compliance:** Strict Dataset Isolation, Zero Hallucinated Metrics, Zero-Crash Exception Policy
 
@@ -18,29 +18,14 @@ Milestone 3 establishes the structured text extraction and identity document par
 
 ---
 ### 3. Internal Synthetic Benchmark (Forgelensia M1 Dataset)
-- **Evaluated Documents:** 15
-- **Evaluated Structured Fields:** 75
-- **OCR Engine:** `rapidocr`
-- **Mean Latency per Document:** `765.3` ms
-- **Overall Character Error Rate (CER):** `0.0000`
-- **Overall Edit Similarity:** `100.00%`
-- **Overall Exact Match Rate:** `100.00%`
-
-#### Field-by-Field Performance Breakdown
-| Field Name | Evaluated | Extracted | Exact Match % | Edit Similarity % | CER | Mean Confidence |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `name` | 15 | 15 | 100.0% | 100.0% | 0.0000 | 0.8497 |
-| `dob` | 15 | 15 | 100.0% | 100.0% | 0.0000 | 0.8599 |
-| `document_number` | 15 | 15 | 100.0% | 100.0% | 0.0000 | 0.8720 |
-| `issue_date` | 15 | 15 | 100.0% | 100.0% | 0.0000 | 0.8439 |
-| `expiry_date` | 15 | 15 | 100.0% | 100.0% | 0.0000 | 0.8563 |
+*Synthetic benchmark evaluation not executed or skipped.*
 
 ---
 ### 4. Real-World Benchmark (MIDV-500 International Identity Documents)
 - **Evaluated Documents/Frames:** 15
 - **Evaluated Structured Fields:** 75
 - **OCR Engine:** `rapidocr`
-- **Mean Latency per Document:** `798.3` ms
+- **Mean Latency per Document:** `687.0` ms
 - **Overall Character Error Rate (CER):** `0.0150`
 - **Overall Edit Similarity:** `98.50%`
 - **Overall Exact Match Rate:** `80.00%`
@@ -53,18 +38,6 @@ Milestone 3 establishes the structured text extraction and identity document par
 | `document_number` | 15 | 15 | 100.0% | 100.0% | 0.0000 | 0.8677 |
 | `issue_date` | 15 | 15 | 100.0% | 100.0% | 0.0000 | 0.8435 |
 | `expiry_date` | 15 | 15 | 100.0% | 100.0% | 0.0000 | 0.8481 |
-
----
-### 5. Multi-Condition Optical Degradation & Robustness Profiling
-Evaluation of optical character recognition resilience across systematic sensor degradations (Gaussian defocus blur, flash/overhead specular glare, low-light underexposure, and resolution downsampling):
-
-| Degradation Condition | Evaluated Fields | Exact Match % | Edit Similarity % | CER | Mean Latency |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **Baseline** | 25 | 100.0% | 100.0% | 0.0000 | 592.4 ms |
-| **Gaussian Blur** | 25 | 60.0% | 72.9% | 0.3380 | 1006.5 ms |
-| **Specular Glare** | 25 | 100.0% | 100.0% | 0.0000 | 537.4 ms |
-| **Underexposure** | 25 | 100.0% | 100.0% | 0.0000 | 563.3 ms |
-| **Downsampling** | 25 | 48.0% | 63.9% | 0.5213 | 820.5 ms |
 
 ---
 ### 6. Zero-Leakage Source-Clip Partitioning Validation

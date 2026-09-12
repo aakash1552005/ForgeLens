@@ -1,11 +1,11 @@
 source_id,attack_type,ground_truth_label,fraud_probability,risk_score,decision,primary_driver,image_path
-src_0001,none,genuine,0.1595,16.0,VERIFIED,Authentic baseline (negligible fraud risk),C:\Users\AAKASH.S.S\OneDrive\Desktop\ForgeLens-X-M1\data\generated\images\src_0001_genuine.jpg
+src_0001,none,genuine,0.1539,15.4,VERIFIED,Authentic baseline (negligible fraud risk),C:\Users\AAKASH.S.S\OneDrive\Desktop\ForgeLens-X-M1\data\generated\images\src_0001_genuine.jpg
 src_0001,date_edit,tampered,1.0,100.0,HIGH_RISK,Abnormal typographic stroke-width variance exceeding character baseline (+0.60 log-odds),C:\Users\AAKASH.S.S\OneDrive\Desktop\ForgeLens-X-M1\data\generated\images\src_0001_date_edit.jpg
 src_0001,text_edit,tampered,1.0,100.0,HIGH_RISK,Abnormal typographic stroke-width variance exceeding character baseline (+0.81 log-odds),C:\Users\AAKASH.S.S\OneDrive\Desktop\ForgeLens-X-M1\data\generated\images\src_0001_text_edit.jpg
 src_0001,photo_swap,tampered,1.0,100.0,HIGH_RISK,Abnormal typographic stroke-width variance exceeding character baseline (+0.81 log-odds),C:\Users\AAKASH.S.S\OneDrive\Desktop\ForgeLens-X-M1\data\generated\images\src_0001_photo_swap.jpg
-src_0001,copy_move,tampered,1.0,100.0,HIGH_RISK,Error Level Analysis compression residue mismatch (+3.50 log-odds),C:\Users\AAKASH.S.S\OneDrive\Desktop\ForgeLens-X-M1\data\generated\images\src_0001_copy_move.jpg
-src_0000,none,genuine,0.1031,10.3,VERIFIED,Authentic baseline (negligible fraud risk),C:\Users\AAKASH.S.S\OneDrive\Desktop\ForgeLens-X-M1\data\generated\images\src_0000_genuine.jpg
-src_0000,date_edit,tampered,0.9022,90.2,HIGH_RISK,Cloned motif detected via verified ORB keypoint correspondences (+0.04 log-odds),C:\Users\AAKASH.S.S\OneDrive\Desktop\ForgeLens-X-M1\data\generated\images\src_0000_date_edit.jpg
-src_0000,text_edit,tampered,1.0,100.0,HIGH_RISK,Cloned motif detected via verified ORB keypoint correspondences (+0.05 log-odds),C:\Users\AAKASH.S.S\OneDrive\Desktop\ForgeLens-X-M1\data\generated\images\src_0000_text_edit.jpg
-src_0000,photo_swap,tampered,0.8676,86.8,HIGH_RISK,Cloned motif detected via verified ORB keypoint correspondences (+0.05 log-odds),C:\Users\AAKASH.S.S\OneDrive\Desktop\ForgeLens-X-M1\data\generated\images\src_0000_photo_swap.jpg
-src_0000,copy_move,tampered,1.0,100.0,HIGH_RISK,Error Level Analysis compression residue mismatch (+4.15 log-odds),C:\Users\AAKASH.S.S\OneDrive\Desktop\ForgeLens-X-M1\data\generated\images\src_0000_copy_move.jpg
+src_0001,copy_move,tampered,1.0,100.0,HIGH_RISK,Duplicated security motif detected with 489 matched keypoints,C:\Users\AAKASH.S.S\OneDrive\Desktop\ForgeLens-X-M1\data\generated\images\src_0001_copy_move.jpg
+src_0000,none,genuine,0.0992,9.9,VERIFIED,Authentic baseline (negligible fraud risk),C:\Users\AAKASH.S.S\OneDrive\Desktop\ForgeLens-X-M1\data\generated\images\src_0000_genuine.jpg
+src_0000,date_edit,tampered,0.9012,90.1,HIGH_RISK,Conforms to authentic distribution,C:\Users\AAKASH.S.S\OneDrive\Desktop\ForgeLens-X-M1\data\generated\images\src_0000_date_edit.jpg
+src_0000,text_edit,tampered,1.0,100.0,HIGH_RISK,Conforms to authentic distribution,C:\Users\AAKASH.S.S\OneDrive\Desktop\ForgeLens-X-M1\data\generated\images\src_0000_text_edit.jpg
+src_0000,photo_swap,tampered,0.96,96.0,HIGH_RISK,Physical cut-and-paste seam detected along portrait boundary perimeter,C:\Users\AAKASH.S.S\OneDrive\Desktop\ForgeLens-X-M1\data\generated\images\src_0000_photo_swap.jpg
+src_0000,copy_move,tampered,1.0,100.0,HIGH_RISK,Duplicated security motif detected with 565 matched keypoints,C:\Users\AAKASH.S.S\OneDrive\Desktop\ForgeLens-X-M1\data\generated\images\src_0000_copy_move.jpg

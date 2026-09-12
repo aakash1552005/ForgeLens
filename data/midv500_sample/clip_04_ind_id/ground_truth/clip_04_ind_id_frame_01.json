@@ -1,0 +1,44 @@
+{
+  "doc_type": "ind_id",
+  "doc_category": "id_card",
+  "country": "IND",
+  "source_clip_id": "clip_04_ind_id",
+  "frame_id": 1,
+  "quad": [
+    [
+      56,
+      48
+    ],
+    [
+      904,
+      61
+    ],
+    [
+      881,
+      581
+    ],
+    [
+      77,
+      566
+    ]
+  ],
+  "attack_type": "genuine",
+  "is_presentation_attack": false,
+  "fields": {
+    "name": {
+      "value": "VIKRAM SHARMA"
+    },
+    "dob": {
+      "value": "12/04/1985"
+    },
+    "document_number": {
+      "value": "FGL-849201-92"
+    },
+    "issue_date": {
+      "value": "15/08/2021"
+    },
+    "expiry_date": {
+      "value": "15/08/2031"
+    }
+  }
+}

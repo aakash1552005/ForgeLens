@@ -1,0 +1,44 @@
+{
+  "doc_type": "ita_id_genuine",
+  "doc_category": "id_card",
+  "country": "ITA",
+  "source_clip_id": "clip_01_ita_id_genuine",
+  "frame_id": 1,
+  "quad": [
+    [
+      87,
+      57
+    ],
+    [
+      887,
+      76
+    ],
+    [
+      868,
+      573
+    ],
+    [
+      95,
+      548
+    ]
+  ],
+  "attack_type": "genuine",
+  "is_presentation_attack": false,
+  "fields": {
+    "name": {
+      "value": "MARCO ROSSI"
+    },
+    "dob": {
+      "value": "19/07/1987"
+    },
+    "document_number": {
+      "value": "CA1029384"
+    },
+    "issue_date": {
+      "value": "12/04/2019"
+    },
+    "expiry_date": {
+      "value": "12/04/2029"
+    }
+  }
+}

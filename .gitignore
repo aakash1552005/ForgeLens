@@ -31,7 +31,11 @@ reports/scratch/
 Thumbs.db
 .DS_Store
 
-# Env
+# Env & Temp
 .env
 venv/
 env/
+.pytest_cache/
+scratch/
+data/temp_uploads/*
+*.log

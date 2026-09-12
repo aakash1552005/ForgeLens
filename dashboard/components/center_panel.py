@@ -38,7 +38,7 @@ def render_center_panel(
         return
 
     # Pre-generate or retrieve ELA heatmap for blending & tabs
-    ela_heat_bgr = generate_ela_heatmap_bgr(doc_path)
+    ela_heat_bgr = generate_ela_heatmap_bgr(doc_path, report=report)
 
     # 4 Main Forensic Inspection Tabs
     tab_spatial, tab_ela, tab_copymove, tab_master = st.tabs([

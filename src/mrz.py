@@ -535,14 +535,37 @@ def _normalize_date_digits(d_str: Optional[str]) -> Optional[str]:
     """Extract 6-digit YYMMDD from arbitrary DD/MM/YYYY or YYYY-MM-DD string."""
     if not d_str:
         return None
+    d_str = d_str.strip()
+    # Check delimited formats first (DD/MM/YYYY or YYYY-MM-DD)
+    parts = re.split(r"[/.-]", d_str)
+    if len(parts) == 3:
+        p0, p1, p2 = parts[0].strip(), parts[1].strip(), parts[2].strip()
+        if len(p0) == 4 and p0.isdigit():
+            # YYYY-MM-DD
+            yy = p0[-2:]
+            mm = p1.zfill(2)
+            dd = p2.zfill(2)
+            return f"{yy}{mm}{dd}"
+        elif len(p2) == 4 and p2.isdigit():
+            # DD/MM/YYYY
+            dd = p0.zfill(2)
+            mm = p1.zfill(2)
+            yy = p2[-2:]
+            return f"{yy}{mm}{dd}"
+        elif len(p2) == 2 and p2.isdigit() and len(p0) == 2 and p0.isdigit():
+            # DD/MM/YY
+            dd = p0.zfill(2)
+            mm = p1.zfill(2)
+            yy = p2.zfill(2)
+            return f"{yy}{mm}{dd}"
+
     cleaned = re.sub(r"[^0-9]", "", d_str)
     if len(cleaned) == 8:
-        # DDMMYYYY or YYYYMMDD
-        if d_str.startswith("19") or d_str.startswith("20"):
-            # YYYYMMDD -> YYMMDD
+        yr_prefix = int(cleaned[:4])
+        mo_prefix = int(cleaned[4:6])
+        if (1900 <= yr_prefix <= 2099) and (1 <= mo_prefix <= 12):
             return cleaned[2:8]
         else:
-            # DDMMYYYY -> YYMMDD
             dd = cleaned[0:2]
             mm = cleaned[2:4]
             yy = cleaned[6:8]
@@ -624,16 +647,28 @@ def cross_validate_viz_and_mrz(
         total_comparable += 1
         v_tokens = set(re.findall(r"[A-Z]{2,}", viz_name.upper()))
         m_tokens = set(re.findall(r"[A-Z]{2,}", (mrz_name or "").upper()))
-        if mrz_surname:
-            m_tokens.update(re.findall(r"[A-Z]{2,}", mrz_surname.upper()))
+        # Check Surname concordance
+        surname_match = True
+        def _norm_token(t: str) -> str:
+            return t.upper().replace("L", "I").replace("1", "I").replace("0", "O")
 
-        overlap = v_tokens.intersection(m_tokens)
-        if overlap:
+        norm_v = {_norm_token(t) for t in v_tokens}
+        norm_m = {_norm_token(t) for t in m_tokens}
+
+        if mrz_surname:
+            s_tokens = set(re.findall(r"[A-Z]{2,}", mrz_surname.upper()))
+            norm_s = {_norm_token(t) for t in s_tokens}
+            if s_tokens and not (s_tokens.intersection(v_tokens) or norm_s.intersection(norm_v)):
+                surname_match = False
+
+        overlap = v_tokens.intersection(m_tokens) or norm_v.intersection(norm_m)
+        if overlap and surname_match:
             concordances += 1
             checks.append({"field": "name", "status": "PASS", "viz": viz_name, "mrz": mrz_name, "overlap": list(overlap)})
         else:
-            mismatches.append(f"Name mismatch: VIZ '{viz_name}' vs MRZ '{mrz_name}' (no token overlap)")
-            checks.append({"field": "name", "status": "FAIL", "viz": viz_name, "mrz": mrz_name})
+            reason = f"Surname '{mrz_surname}' missing in VIZ '{viz_name}'" if not surname_match else f"VIZ '{viz_name}' vs MRZ '{mrz_name}' (no token overlap)"
+            mismatches.append(f"Name mismatch: {reason}")
+            checks.append({"field": "name", "status": "FAIL", "viz": viz_name, "mrz": f"{mrz_surname}<<{mrz_name}" if mrz_surname else mrz_name})
     else:
         checks.append({"field": "name", "status": "NOT_APPLICABLE", "viz": viz_name, "mrz": mrz_name})
 

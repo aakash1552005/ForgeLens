@@ -17,7 +17,7 @@ import numpy as np
 import streamlit as st
 
 from src.copy_move import detect_copy_move
-from src.ela import analyze_ela, compute_baseline
+from src.ela import analyze_ela, compute_baseline, compute_ela
 from src.forensic_report import (
     generate_unified_forensic_report,
     get_default_baseline,
@@ -54,13 +54,13 @@ def get_cached_fusion_model() -> Optional[Dict[str, Any]]:
 def run_screening_pipeline(
     image_path: str,
     reference_face_path: Optional[str] = None,
+    file_mtime: float = 0.0,
 ) -> Dict[str, Any]:
     """Execute the full ForgeLens-X unified forensic pipeline and cache report."""
-    baseline = get_cached_baseline()
     report = generate_unified_forensic_report(
         image_path=image_path,
         reference_face_path=reference_face_path,
-        baseline=baseline,
+        baseline=None,
     )
     return report
 
@@ -69,14 +69,98 @@ def run_screening_pipeline(
 def get_cached_diagnostic_card(
     image_path: str,
     reference_face_path: Optional[str] = None,
+    file_mtime: float = 0.0,
 ) -> np.ndarray:
     """Render and cache the 1280x870 4-panel screening card in RGB format."""
-    report = run_screening_pipeline(image_path, reference_face_path)
+    report = run_screening_pipeline(image_path, reference_face_path, file_mtime=file_mtime)
     doc_bgr = cv2.imread(image_path)
     if doc_bgr is None:
         return np.zeros((870, 1280, 3), dtype=np.uint8)
     card_bgr, _ = render_unified_forensic_card(doc_bgr, report)
     return cv2.cvtColor(card_bgr, cv2.COLOR_BGR2RGB)
+
+
+# ---------------------------------------------------------------------------
+# 2B. Multi-Layer Memory Cache & SVG Icon Infrastructure
+# ---------------------------------------------------------------------------
+
+_LAYER_CACHE: Dict[Tuple[str, float, Optional[str]], Dict[str, np.ndarray]] = {}
+
+
+def get_cached_view_layers(
+    image_path: str,
+    report: Dict[str, Any],
+    reference_face_path: Optional[str] = None,
+) -> Dict[str, np.ndarray]:
+    """
+    Pre-renders and caches all 4 visual evidence layers in memory.
+    Enables instant (< 10ms) zero-latency layer switching in the UI.
+    """
+    try:
+        mtime = os.path.getmtime(image_path)
+    except Exception:
+        mtime = 0.0
+
+    cache_key = (image_path, mtime, reference_face_path)
+    if cache_key in _LAYER_CACHE:
+        return _LAYER_CACHE[cache_key]
+
+    doc_bgr = cv2.imread(image_path)
+    if doc_bgr is None:
+        dummy = np.zeros((400, 600, 3), dtype=np.uint8)
+        return {"original": dummy, "overlay": dummy, "heatmap": dummy, "card": dummy}
+
+    # 1. Clean original RGB
+    orig_rgb = cv2.cvtColor(doc_bgr, cv2.COLOR_BGR2RGB)
+
+    # 2. Dynamic bounding box & tamper overlay
+    overlay_rgb = render_dynamic_overlay(
+        doc_bgr=doc_bgr,
+        report=report,
+        show_ocr=True,
+        show_ela=True,
+        show_copy_move=True,
+        show_suspicious=True,
+        ela_opacity=0.0,
+    )
+
+    # 3. ELA compression thermal heatmap
+    heat_bgr = generate_ela_heatmap_bgr(image_path, report=report)
+    heat_rgb = cv2.cvtColor(heat_bgr, cv2.COLOR_BGR2RGB)
+
+    # 4. Master 4-panel diagnostic card
+    try:
+        card_rgb = get_cached_diagnostic_card(image_path, reference_face_path, file_mtime=mtime)
+    except Exception:
+        card_rgb = orig_rgb
+
+    layers = {
+        "original": orig_rgb,
+        "overlay": overlay_rgb,
+        "heatmap": heat_rgb,
+        "card": card_rgb,
+    }
+
+    _LAYER_CACHE[cache_key] = layers
+    return layers
+
+
+def get_svg_icon(name: str, color: str = "currentColor", size: int = 16) -> str:
+    """Return crisp inline SVG vector icons (21st.dev / Lucide style)."""
+    icons = {
+        "shield": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
+        "shield_check": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>',
+        "alert_triangle": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+        "check": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+        "layers": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>',
+        "fingerprint": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12C2 6.5 6.5 2 12 2a10 10 0 0 1 8 4"/><path d="M5 19.5C5.5 18 6 15 6 12c0-.7.12-1.37.34-2"/><path d="M17.29 21.02c.12-.6.18-1.23.18-1.87 0-3-1-4-2-6"/><path d="M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4"/><path d="M8.65 22c.21-.66.45-1.32.75-2"/><path d="M14 13.1a14 14 0 0 0 .5 4.9"/></svg>',
+        "download": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>',
+        "file_text": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>',
+        "eye": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>',
+        "cpu": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3"/><path d="M15 1v3"/><path d="M9 20v3"/><path d="M15 20v3"/><path d="M20 9h3"/><path d="M20 14h3"/><path d="M1 9h3"/><path d="M1 14h3"/></svg>',
+        "crosshair": f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/><line x1="12" y1="6" x2="12" y2="2"/><line x1="12" y1="22" x2="12" y2="18"/></svg>',
+    }
+    return icons.get(name, f'<span style="font-size: {size}px;">•</span>')
 
 
 # ---------------------------------------------------------------------------
@@ -186,19 +270,24 @@ def render_dynamic_overlay(
 # 4. Heatmap & Feature View Generators
 # ---------------------------------------------------------------------------
 
-def generate_ela_heatmap_bgr(image_path: str, quality: int = 90) -> np.ndarray:
+def generate_ela_heatmap_bgr(image_path: str, quality: int = 90, report: Optional[Dict[str, Any]] = None) -> np.ndarray:
     """Generate normalized ELA error difference map with COLORMAP_JET."""
     baseline = get_cached_baseline()
     ela_res = analyze_ela(image_path, baseline=baseline, quality=quality)
-    diff = ela_res.get("diff")
+    diff = ela_res.get("ela_heatmap")
+    if diff is None:
+        try:
+            diff = compute_ela(image_path, quality=quality)
+        except Exception:
+            diff = None
 
     if diff is None:
         orig = cv2.imread(image_path)
         return orig if orig is not None else np.zeros((400, 600, 3), dtype=np.uint8)
 
-    # Normalize to 0-255 range and apply colormap
-    diff_norm = cv2.normalize(diff, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
-    heatmap = cv2.applyColorMap(diff_norm, cv2.COLORMAP_JET)
+    # Normalize heatmap for contrast (scale by 8.0 for clear thermal visualization) and apply JET colormap
+    norm_ela = np.clip(diff * 8.0, 0, 255).astype(np.uint8)
+    heatmap = cv2.applyColorMap(norm_ela, cv2.COLORMAP_JET)
     return heatmap
 
 

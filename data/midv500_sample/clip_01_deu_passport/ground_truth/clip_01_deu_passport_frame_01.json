@@ -1,0 +1,44 @@
+{
+  "doc_type": "deu_passport",
+  "doc_category": "passport",
+  "country": "DEU",
+  "source_clip_id": "clip_01_deu_passport",
+  "frame_id": 1,
+  "quad": [
+    [
+      65,
+      46
+    ],
+    [
+      895,
+      64
+    ],
+    [
+      883,
+      583
+    ],
+    [
+      72,
+      566
+    ]
+  ],
+  "attack_type": "genuine",
+  "is_presentation_attack": false,
+  "fields": {
+    "name": {
+      "value": "ANNA SCHMIDT"
+    },
+    "dob": {
+      "value": "15/04/1986"
+    },
+    "document_number": {
+      "value": "C01X00T47"
+    },
+    "issue_date": {
+      "value": "10/05/2018"
+    },
+    "expiry_date": {
+      "value": "09/05/2028"
+    }
+  }
+}

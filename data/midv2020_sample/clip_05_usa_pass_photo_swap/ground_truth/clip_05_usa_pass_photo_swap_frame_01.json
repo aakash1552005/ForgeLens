@@ -1,0 +1,44 @@
+{
+  "doc_type": "usa_pass_photo_swap",
+  "doc_category": "passport",
+  "country": "USA",
+  "source_clip_id": "clip_05_usa_pass_photo_swap",
+  "frame_id": 1,
+  "quad": [
+    [
+      87,
+      55
+    ],
+    [
+      877,
+      80
+    ],
+    [
+      863,
+      567
+    ],
+    [
+      101,
+      558
+    ]
+  ],
+  "attack_type": "photo_swap",
+  "is_presentation_attack": false,
+  "fields": {
+    "name": {
+      "value": "EMILY DAVIS"
+    },
+    "dob": {
+      "value": "05/06/1993"
+    },
+    "document_number": {
+      "value": "492019482"
+    },
+    "issue_date": {
+      "value": "15/03/2021"
+    },
+    "expiry_date": {
+      "value": "14/03/2031"
+    }
+  }
+}

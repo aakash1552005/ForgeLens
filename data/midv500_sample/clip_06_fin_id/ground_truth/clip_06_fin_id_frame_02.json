@@ -1,0 +1,44 @@
+{
+  "doc_type": "fin_id",
+  "doc_category": "id_card",
+  "country": "FIN",
+  "source_clip_id": "clip_06_fin_id",
+  "frame_id": 2,
+  "quad": [
+    [
+      65,
+      47
+    ],
+    [
+      896,
+      67
+    ],
+    [
+      890,
+      589
+    ],
+    [
+      72,
+      569
+    ]
+  ],
+  "attack_type": "genuine",
+  "is_presentation_attack": false,
+  "fields": {
+    "name": {
+      "value": "MATTI VIRTANEN"
+    },
+    "dob": {
+      "value": "03/09/1990"
+    },
+    "document_number": {
+      "value": "A93820192"
+    },
+    "issue_date": {
+      "value": "20/06/2020"
+    },
+    "expiry_date": {
+      "value": "20/06/2025"
+    }
+  }
+}

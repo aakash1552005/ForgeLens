@@ -1,0 +1,43 @@
+services:
+  # ForgeLens-X High-Throughput REST Forensic Microservice
+  forgelens-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: forgelens-x-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./data:/app/data
+      - ./original image:/app/original image:ro
+      - ./tamper image:/app/tamper image:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ForgeLens-X Interactive Examiner Dashboard (Streamlit M7 Console)
+  forgelens-dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: forgelens-x-dashboard
+    restart: unless-stopped
+    command: ["streamlit", "run", "dashboard/app.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true"]
+    ports:
+      - "8501:8501"
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./data:/app/data
+      - ./original image:/app/original image:ro
+      - ./tamper image:/app/tamper image:ro
+    depends_on:
+      forgelens-api:
+        condition: service_healthy

@@ -43,11 +43,16 @@ def extract_face_from_document(
         Face extraction dictionary with bounding box and landmarks mapped
         to the full document coordinate space.
     """
-    if not os.path.exists(document_path):
+    if isinstance(document_path, np.ndarray):
+        img_bgr = document_path.copy()
+    elif isinstance(document_path, str):
+        if not os.path.exists(document_path):
+            return None
+        img_bgr = cv2.imread(document_path)
+    else:
         return None
 
-    img_bgr = cv2.imread(document_path)
-    if img_bgr is None:
+    if img_bgr is None or img_bgr.size == 0:
         return None
 
     ih, iw = img_bgr.shape[:2]

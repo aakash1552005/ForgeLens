@@ -20,6 +20,7 @@ Key Design Constraints:
 import math
 import os
 import sys
+import threading
 import time
 import urllib.request
 from pathlib import Path
@@ -28,6 +29,9 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import cv2
 import numpy as np
 from PIL import Image
+
+# Re-entrant thread lock for OpenCV DNN modules (YuNet & SFace)
+_FACE_CV_LOCK = threading.RLock()
 
 # ---------------------------------------------------------------------------
 # Constants & Model Cache Configuration
@@ -203,47 +207,48 @@ def extract_face(
     recognizer = get_face_recognizer()
 
     if detector is not None:
-        detector.setInputSize((w, h))
-        _, faces = detector.detect(img_bgr)
+        with _FACE_CV_LOCK:
+            detector.setInputSize((w, h))
+            _, faces = detector.detect(img_bgr)
 
-        if faces is not None and len(faces) > 0:
-            # Select dominant face (largest bounding box area)
-            best_face = max(faces, key=lambda f: f[2] * f[3])
-            x, y, fw, fh = int(best_face[0]), int(best_face[1]), int(best_face[2]), int(best_face[3])
-            score = float(best_face[-1])
+            if faces is not None and len(faces) > 0:
+                # Select dominant face (largest bounding box area)
+                best_face = max(faces, key=lambda f: f[2] * f[3])
+                x, y, fw, fh = int(best_face[0]), int(best_face[1]), int(best_face[2]), int(best_face[3])
+                score = float(best_face[-1])
 
-            # Extract 5 landmarks: [right_eye, left_eye, nose, right_mouth, left_mouth]
-            landmarks = [
-                [float(best_face[4]), float(best_face[5])],
-                [float(best_face[6]), float(best_face[7])],
-                [float(best_face[8]), float(best_face[9])],
-                [float(best_face[10]), float(best_face[11])],
-                [float(best_face[12]), float(best_face[13])],
-            ]
+                # Extract 5 landmarks: [right_eye, left_eye, nose, right_mouth, left_mouth]
+                landmarks = [
+                    [float(best_face[4]), float(best_face[5])],
+                    [float(best_face[6]), float(best_face[7])],
+                    [float(best_face[8]), float(best_face[9])],
+                    [float(best_face[10]), float(best_face[11])],
+                    [float(best_face[12]), float(best_face[13])],
+                ]
 
-            # 5-point landmark affine alignment to canonical 112x112 coordinate space
-            if align and recognizer is not None:
-                aligned_crop = recognizer.alignCrop(img_bgr, best_face)
-            else:
-                x1 = max(0, x)
-                y1 = max(0, y)
-                x2 = min(w, x + fw)
-                y2 = min(h, y + fh)
-                aligned_crop = cv2.resize(img_bgr[y1:y2, x1:x2], (112, 112))
+                # 5-point landmark affine alignment to canonical 112x112 coordinate space
+                if align and recognizer is not None:
+                    aligned_crop = recognizer.alignCrop(img_bgr, best_face)
+                else:
+                    x1 = max(0, x)
+                    y1 = max(0, y)
+                    x2 = min(w, x + fw)
+                    y2 = min(h, y + fh)
+                    aligned_crop = cv2.resize(img_bgr[y1:y2, x1:x2], (112, 112))
 
-            from src.face_quality import assess_face_quality
-            quality = assess_face_quality(img_bgr, landmarks=landmarks, bbox=[x, y, fw, fh])
+                from src.face_quality import assess_face_quality
+                quality = assess_face_quality(img_bgr, landmarks=landmarks, bbox=[x, y, fw, fh])
 
-            return {
-                "face_crop": aligned_crop,
-                "bbox": [x, y, fw, fh],
-                "landmarks": landmarks,
-                "confidence": score,
-                "detector": "yunet",
-                "original_size": (w, h),
-                "raw_face_data": best_face,
-                "quality": quality,
-            }
+                return {
+                    "face_crop": aligned_crop,
+                    "bbox": [x, y, fw, fh],
+                    "landmarks": landmarks,
+                    "confidence": score,
+                    "detector": "yunet",
+                    "original_size": (w, h),
+                    "raw_face_data": best_face,
+                    "quality": quality,
+                }
 
     # 3. Fallback: OpenCV Haar Cascade detector
     cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
@@ -409,6 +414,25 @@ def _try_deepface_verify(
         return None
 
 
+def extract_face_embedding(face_input: Union[str, np.ndarray]) -> Optional[np.ndarray]:
+    """Extract deep face recognition embedding representation from face image or crop."""
+    recognizer = get_face_recognizer()
+    if recognizer is None:
+        return None
+    if isinstance(face_input, str):
+        data = extract_face(face_input)
+        if data is None:
+            return None
+        crop = data["face_crop"]
+    else:
+        crop = face_input
+    if crop is None or crop.size == 0:
+        return None
+    crop_aligned = cv2.resize(crop, (112, 112))
+    with _FACE_CV_LOCK:
+        return recognizer.feature(crop_aligned)
+
+
 # ---------------------------------------------------------------------------
 # Canonical Verification Function
 # ---------------------------------------------------------------------------
@@ -422,6 +446,8 @@ def verify(
     enforce_detection: bool = True,
     align: bool = True,
     threshold: Optional[float] = None,
+    check_liveness: bool = False,
+    check_morphing: bool = False,
 ) -> Dict[str, Any]:
     """
     Canonical Milestone 2 Face Verification function.
@@ -507,8 +533,9 @@ def verify(
             "time_seconds": round(time.time() - start_time, 3),
         }
 
-    emb_doc = recognizer.feature(doc_data["face_crop"])
-    emb_live = recognizer.feature(live_data["face_crop"])
+    with _FACE_CV_LOCK:
+        emb_doc = recognizer.feature(doc_data["face_crop"])
+        emb_live = recognizer.feature(live_data["face_crop"])
 
     # Expand to 512-D embedding space if requested model is ArcFace/Facenet512
     if model_name in ["ArcFace", "Facenet512"] and emb_doc.shape[-1] == 128:
@@ -557,7 +584,7 @@ def verify(
 
     elapsed = round(time.time() - start_time, 3)
 
-    return {
+    out_dict = {
         "verified": bool(verified),
         "distance": round(float(dist), 4),
         "threshold": round(float(threshold), 4),
@@ -582,6 +609,16 @@ def verify(
         "time_seconds": elapsed,
         "engine": "native_opencv",
     }
+
+    if check_liveness:
+        from src.liveness_pad import evaluate_face_liveness
+        out_dict["liveness"] = evaluate_face_liveness(live_face_path)
+
+    if check_morphing:
+        from src.morph_forensics import evaluate_photo_morphing
+        out_dict["morphing"] = evaluate_photo_morphing(document_face_path, live_face_path)
+
+    return out_dict
 
 
 # ---------------------------------------------------------------------------

@@ -566,6 +566,29 @@ def predict_document_risk(
     probs = calibrator.predict_proba(feat_scaled.reshape(1, -1))[0]
     raw_prob = float(probs[1])
 
+    # Multi-modal decisive forensic evidence gate
+    mrz_viz = float(feature_vector.get("mrz_viz_contradiction_flag", 0.0) or 0.0)
+    mrz_fail = float(feature_vector.get("mrz_checksum_fail", 0.0) or 0.0)
+    cm_det = float(feature_vector.get("copy_move_detected", 0.0) or 0.0)
+    cm_matches = float(feature_vector.get("copy_move_num_matches", 0.0) or 0.0)
+    sem_fails = float(feature_vector.get("semantic_failed_count", 0.0) or 0.0)
+
+    face_mism = float(feature_vector.get("face_mismatch", 0.0) or 0.0)
+    photo_splice = float(feature_vector.get("photo_splicing_detected", 0.0) or 0.0)
+
+    if mrz_viz >= 1.0:
+        raw_prob = max(raw_prob, 0.98)
+    elif mrz_fail >= 1.0:
+        raw_prob = max(raw_prob, 0.95)
+    elif face_mism >= 1.0:
+        raw_prob = max(raw_prob, 0.95)
+    elif photo_splice >= 1.0:
+        raw_prob = max(raw_prob, 0.96)
+    elif cm_det >= 1.0 and cm_matches >= 15.0:
+        raw_prob = max(raw_prob, 0.95)
+    elif sem_fails >= 2.0:
+        raw_prob = max(raw_prob, 0.85)
+
     # 3. Optional Bayesian Base-Rate Prior Adjustment (Logit Shift)
     if operational_prior is not None and 0.0001 <= operational_prior <= 0.9999:
         train_prior = 0.50  # Balanced training distribution
@@ -584,6 +607,19 @@ def predict_document_risk(
     total_log_odds, contributions, top_drivers = compute_log_odds_attribution(
         feat_scaled, base_model, feature_names, top_k=3
     )
+
+    # Prepend decisive fraud drivers if active
+    if mrz_viz >= 1.0:
+        top_drivers.insert(0, {"feature": "mrz_viz_contradiction_flag", "contribution_log_odds": 4.5, "description": "Visual field contradicts official cryptographically checked MRZ ground truth"})
+    elif mrz_fail >= 1.0:
+        top_drivers.insert(0, {"feature": "mrz_checksum_fail", "contribution_log_odds": 4.0, "description": "ICAO Doc 9303 Modulo-10 checksum validation failure"})
+    elif face_mism >= 1.0:
+        top_drivers.insert(0, {"feature": "face_mismatch", "contribution_log_odds": 4.2, "description": "Biometric face verification failure (impostor substitution)"})
+    elif photo_splice >= 1.0:
+        top_drivers.insert(0, {"feature": "photo_splicing_detected", "contribution_log_odds": 4.1, "description": "Physical cut-and-paste seam detected along portrait boundary perimeter"})
+    elif cm_det >= 1.0 and cm_matches >= 15.0:
+        top_drivers.insert(0, {"feature": "copy_move_num_matches", "contribution_log_odds": 3.8, "description": f"Duplicated security motif detected with {int(cm_matches)} matched keypoints"})
+    top_drivers = top_drivers[:3]
 
     # For authentic low-risk documents (fraud_prob < 0.30), suppress spurious baseline noise drivers
     if calibrated_prob < 0.30:

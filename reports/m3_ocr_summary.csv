@@ -1,10 +1,4 @@
 dataset,field,total_samples,extracted_count,exact_matches,exact_match_rate,mean_edit_similarity,mean_cer,mean_confidence,extraction_rate
-Synthetic (Forgelensia M1),name,15,15,15,1.0,1.0,0.0,0.8497,1.0
-Synthetic (Forgelensia M1),dob,15,15,15,1.0,1.0,0.0,0.8599,1.0
-Synthetic (Forgelensia M1),document_number,15,15,15,1.0,1.0,0.0,0.872,1.0
-Synthetic (Forgelensia M1),issue_date,15,15,15,1.0,1.0,0.0,0.8439,1.0
-Synthetic (Forgelensia M1),expiry_date,15,15,15,1.0,1.0,0.0,0.8563,1.0
-Synthetic (Forgelensia M1),OVERALL,15,75,-,1.0,1.0,0.0,0.8564,-
 Real-World (MIDV-500),name,15,15,0,0.0,0.9251,0.0749,0.8379,1.0
 Real-World (MIDV-500),dob,15,15,15,1.0,1.0,0.0,0.8399,1.0
 Real-World (MIDV-500),document_number,15,15,15,1.0,1.0,0.0,0.8677,1.0

@@ -17,6 +17,11 @@ from pathlib import Path
 import sys
 import time
 
+# Ensure project root is in sys.path
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT_DIR not in sys.path:
+    sys.path.insert(0, ROOT_DIR)
+
 import numpy as np
 
 from src.copy_move import detect_copy_move
@@ -929,7 +934,8 @@ def cmd_ocr_eval(args):
     print(f"Target Dataset: {args.dataset}")
     print(f"Sample Limit:   {args.samples}")
     print(f"Engine:         {args.engine}")
-    print(f"Random Seed:    {args.seed}")
+    seed = getattr(args, "seed", 42)
+    print(f"Random Seed:    {seed}")
     print("-" * 60)
 
     synth_report = None
@@ -938,7 +944,7 @@ def cmd_ocr_eval(args):
     # 1. Evaluate Synthetic Benchmark (Forgelensia M1)
     if args.dataset in ["synthetic", "all"]:
         print("\n[STEP 1] Evaluating Synthetic Benchmark (Forgelensia M1)...")
-        eval_synth_items = load_synthetic_ocr_dataset(limit=args.samples, seed=args.seed)
+        eval_synth_items = load_synthetic_ocr_dataset(limit=args.samples, seed=seed)
         print(f"  • Running OCR on {len(eval_synth_items)} synthetic documents...")
         synth_report = evaluate_ocr_dataset(
             samples=eval_synth_items,
@@ -951,24 +957,21 @@ def cmd_ocr_eval(args):
         print(f"    - Mean Similarity:     {s_ov.get('mean_edit_similarity', 0)*100:.1f}%")
         print(f"    - Exact Match Rate:    {s_ov.get('exact_match_rate', 0)*100:.1f}%")
 
-    # 2. Evaluate Real-World Benchmark (MIDV-500)
-    if args.dataset in ["midv500", "all"]:
-        print("\n[STEP 2] Evaluating Real-World Benchmark (MIDV-500)...")
-        midv_data_dir = "data/midv500"
-        if not os.path.exists(midv_data_dir) or not os.listdir(midv_data_dir):
-            midv_data_dir = "data/midv500_sample"
-            if not os.path.exists(midv_data_dir) or not os.listdir(midv_data_dir):
-                print(f"  • Generating sample MIDV-500 benchmark fixture in {midv_data_dir}...")
-                generate_sample_midv500_dataset(output_dir=midv_data_dir, n_clips=5, frames_per_clip=3)
-
-        midv_ds = load_midv500_dataset(midv_data_dir)
-        midv_samples = midv_ds if isinstance(midv_ds, list) else midv_ds.get("samples", [])
+    # 2. Evaluate Real-World Benchmark (MIDV-500 & MIDV-2020)
+    if args.dataset in ["midv500", "midv2020", "all"]:
+        dataset_label = "MIDV-2020" if args.dataset == "midv2020" else "MIDV-500"
+        print(f"\n[STEP 2] Evaluating Real-World Benchmark ({dataset_label})...")
+        from src.midv500 import load_midv2020_dataset
+        if args.dataset == "midv2020":
+            midv_samples = load_midv2020_dataset("data/midv2020")
+        else:
+            midv_samples = load_midv500_dataset("data/midv500")
 
         if not midv_samples:
-            print("  [Warning] No MIDV-500 samples loaded.")
+            print(f"  [Warning] No {dataset_label} samples loaded.")
         else:
             eval_midv_items = midv_samples[:args.samples]
-            print(f"  • Running OCR on {len(eval_midv_items)} MIDV-500 video frames...")
+            print(f"  • Running OCR on {len(eval_midv_items)} {dataset_label} video frames...")
             midv_report = evaluate_ocr_dataset(
                 samples=eval_midv_items,
                 dataset_type="midv500",
@@ -1688,6 +1691,162 @@ def cmd_dashboard(args: argparse.Namespace) -> None:
         print("\n[+] Dashboard stopped gracefully.")
 
 
+def cmd_serve(args: argparse.Namespace) -> None:
+    """Launch the Milestone 8 FastAPI production REST microservice."""
+    import uvicorn
+    print("=" * 65)
+    print("ForgeLens-X — Milestone 8: High-Throughput REST Microservice")
+    print("=" * 65)
+    print(f"Binding server on {args.host}:{args.port} (workers={args.workers})...")
+    print(f"Interactive Swagger Documentation: http://localhost:{args.port}/docs")
+    print(f"ReDoc Specification: http://localhost:{args.port}/redoc")
+    print("=" * 65)
+    try:
+        uvicorn.run(
+            "api.app:app",
+            host=args.host,
+            port=args.port,
+            reload=args.reload,
+            workers=args.workers,
+        )
+    except KeyboardInterrupt:
+        print("\n[+] REST microservice stopped gracefully.")
+
+
+# --- Milestone 9: Presentation Attack, Morphing & Batch Streaming CLI ---
+
+def cmd_liveness(args: argparse.Namespace) -> None:
+    """Evaluate selfie image for presentation attack detection."""
+    from src.liveness_pad import evaluate_face_liveness
+    print("=" * 65)
+    print("ForgeLens-X — Milestone 9: Presentation Attack Detection (Liveness)")
+    print("=" * 65)
+    res = evaluate_face_liveness(args.selfie)
+    print(f"Selfie Image      : {args.selfie}")
+    print(f"Liveness Confirmed: {res['is_live']}")
+    print(f"Liveness Score    : {res['liveness_score'] * 100:.1f}%")
+    print(f"Spoof Risk Score  : {res['spoof_risk'] * 100:.1f}%")
+    print(f"Spoof Category    : {res['spoof_tier']}")
+    print(f"Attack Type Guess : {res['spoof_type_guess']}")
+    print("-" * 65)
+    for sig_name, sig_val in res["signals"].items():
+        print(f" - {sig_name:<24}: {sig_val}")
+    if getattr(args, "card", None):
+        from src.liveness_pad import generate_liveness_diagnostic_card
+        card_p = generate_liveness_diagnostic_card(args.selfie, output_path=args.card if isinstance(args.card, str) and not args.card.endswith(".py") else None)
+        print(f"Visual PAD Card   : {card_p}")
+    print("=" * 65)
+
+
+def cmd_morph_check(args: argparse.Namespace) -> None:
+    """Evaluate credential portrait for facial morphing artifacts."""
+    from src.morph_forensics import evaluate_photo_morphing
+    print("=" * 65)
+    print("ForgeLens-X — Milestone 9: Facial Morphing Attack Detection (MAD)")
+    print("=" * 65)
+    res = evaluate_photo_morphing(args.portrait, selfie_input=getattr(args, "selfie", None))
+    print(f"Portrait Image    : {args.portrait}")
+    print(f"Morphing Detected : {res['morphing_detected']}")
+    print(f"Morphing Score    : {res['morphing_score']:.1f} / 100.0")
+    print(f"Classification    : {res['morph_tier']}")
+    print("-" * 65)
+    print(f"S-MAD (Single-Img): {res['signals']['smad_single_image']}")
+    if res['signals']['dmad_differential']['evaluated']:
+        print(f"D-MAD (Selfie Ref): {res['signals']['dmad_differential']}")
+    if getattr(args, "card", None):
+        from src.morph_forensics import generate_morph_diagnostic_card
+        card_p = generate_morph_diagnostic_card(args.portrait, selfie_input=getattr(args, "selfie", None), output_path=args.card if isinstance(args.card, str) and not args.card.endswith(".py") else None)
+        print(f"Visual MAD Card   : {card_p}")
+    print("=" * 65)
+
+
+def cmd_batch_screen(args: argparse.Namespace) -> None:
+    """Execute high-volume mass batch screening with streaming and audit ledgers."""
+    from src.batch_streaming import process_bulk_batch, stream_document_directory
+    print("=" * 65)
+    print("ForgeLens-X — Milestone 9: Mass-Scale High-Volume Batch Streaming")
+    print("=" * 65)
+    print(f"Scanning directory: {args.input_dir}")
+    chunks = list(stream_document_directory(args.input_dir, chunk_size=args.chunk_size, recursive=args.recursive))
+    all_files = [f for c in chunks for f in c]
+    print(f"Total documents discovered: {len(all_files)}")
+    print(f"Worker concurrency: {args.workers} threads")
+    print("=" * 65)
+
+    def print_progress(ev):
+        pct = (ev['processed'] / max(1, ev['total'])) * 100.0
+        print(f"[{pct:5.1f}%] Processed {ev['processed']}/{ev['total']} | Verified: {ev['verified']} | Flagged: {ev['flagged']} | {ev['current_fps']} docs/sec | ETA: {ev['eta_sec']}s", end="\r")
+
+    res = process_bulk_batch(
+        file_paths=all_files,
+        max_workers=args.workers,
+        ledger_csv=args.csv,
+        ledger_jsonl=args.jsonl,
+        progress_callback=print_progress,
+        resume_existing=getattr(args, "resume", False),
+    )
+    print("\n" + "=" * 65)
+    print("BATCH SCREENING COMPLETED")
+    print("=" * 65)
+    print(f"Total Screened     : {res['total_screened']}")
+    print(f"Authentic Verified : {res['total_verified']}")
+    print(f"Interception Count : {res['total_flagged']}")
+    print(f"Throughput         : {res['throughput_docs_per_sec']} documents/second")
+    print(f"Mean Latency       : {res['mean_latency_ms']:.1f} ms/doc")
+    print(f"Mean Risk Score    : {res['mean_risk_score']:.1f}")
+    if res.get('ledger_csv'):
+        print(f"Audit CSV Ledger   : {res['ledger_csv']}")
+    if res.get('ledger_jsonl'):
+        print(f"Compliance JSONL   : {res['ledger_jsonl']}")
+
+    if getattr(args, "report", None):
+        from src.batch_streaming import generate_batch_analytics_report
+        generate_batch_analytics_report(res, output_md=args.report)
+        print(f"Executive Report   : {args.report}")
+    print("=" * 65)
+
+
+def cmd_midv_benchmark(args):
+    """
+    Execute unified real-world empirical benchmark across MIDV-500 & MIDV-2020.
+    """
+    from src.midv_benchmark import run_real_world_empirical_benchmark
+    print("=" * 65)
+    print("ForgeLens-X — Real-World Empirical Benchmark (MIDV-500 & MIDV-2020)")
+    print("=" * 65)
+    print(f"Target Scope       : {args.dataset}")
+    print(f"MIDV-500 Dir       : {args.midv500_dir}")
+    print(f"MIDV-2020 Dir      : {args.midv2020_dir}")
+    print(f"Report Output Path : {args.output}")
+    print("-" * 65)
+
+    summary = run_real_world_empirical_benchmark(
+        dataset_name=args.dataset,
+        midv500_dir=args.midv500_dir,
+        midv2020_dir=args.midv2020_dir,
+        output_report_path=args.output,
+    )
+
+    ocr_m = summary["ocr_metrics"]
+    pad_m = summary["presentation_attack_metrics"]
+    homo_m = summary["homography_metrics"]
+    risk_m = summary["forensic_risk_metrics"]
+    perf_m = summary["performance"]
+
+    print("\n" + "=" * 65)
+    print("REAL-WORLD EMPIRICAL BENCHMARK RESULTS")
+    print("=" * 65)
+    print(f"Evaluated Samples  : {summary['total_samples_evaluated']} international mobile frames")
+    print(f"OCR CER / WER      : {ocr_m['mean_cer']:.4f} / {ocr_m['mean_wer']:.4f}")
+    print(f"Field Accuracy     : {ocr_m['field_extraction_accuracy_pct']}% ({ocr_m['total_fields_evaluated']} fields)")
+    print(f"Homography Quad IoU: {homo_m['mean_quad_iou']:.4f} ({homo_m['rectification_success_rate_pct']}% auto-rectified)")
+    print(f"PAD ACER Score     : {pad_m['acer_pct']:.2f}% (APCER: {pad_m['apcer_pct']:.2f}%, BPCER: {pad_m['bpcer_pct']:.2f}%)")
+    print(f"Forensic Separation: {risk_m['forensic_separation_margin']:.1f} pts (Genuine: {risk_m['mean_genuine_risk_score']:.1f} | Tampered: {risk_m['mean_tampered_risk_score']:.1f})")
+    print(f"Throughput & Speed : {perf_m['throughput_fps']} docs/sec ({perf_m['mean_latency_per_doc_ms']} ms/doc)")
+    print(f"Executive Markdown : {args.output}")
+    print("=" * 65)
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="forgelens-m1",
@@ -1767,12 +1926,20 @@ def main():
     ocr_parser.add_argument("--output", type=str, default=None, help="Output path for visual explanation card")
 
     # ocr-eval
-    oe_parser = subparsers.add_parser("ocr-eval", help="Evaluate OCR field extraction and CER across benchmarks")
-    oe_parser.add_argument("--dataset", type=str, default="all", choices=["synthetic", "midv500", "all"], help="Benchmark dataset to evaluate")
+    oe_parser = subparsers.add_parser("ocr-eval", aliases=["evaluate-ocr"], help="Evaluate OCR field extraction and CER across benchmarks")
+    oe_parser.add_argument("--dataset", type=str, default="all", choices=["synthetic", "midv500", "midv2020", "all"], help="Benchmark dataset to evaluate")
     oe_parser.add_argument("--samples", type=int, default=20, help="Number of document samples to evaluate")
     oe_parser.add_argument("--engine", type=str, default="rapidocr", choices=["rapidocr", "tesseract"], help="OCR engine")
     oe_parser.add_argument("--cards", type=int, default=4, help="Number of visual diagnostic explanation cards to generate")
+    oe_parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
     oe_parser.add_argument("--stress-test", action="store_true", help="Run multi-condition optical stress testing (blur, glare, underexposure, downsampling)")
+
+    # midv-benchmark
+    midv_parser = subparsers.add_parser("midv-benchmark", help="Run comprehensive real-world empirical benchmark across MIDV-500 & MIDV-2020")
+    midv_parser.add_argument("--dataset", type=str, default="all", choices=["midv500", "midv2020", "all"], help="Benchmark scope")
+    midv_parser.add_argument("--midv500-dir", type=str, default="data/midv500", help="Local MIDV-500 dataset path")
+    midv_parser.add_argument("--midv2020-dir", type=str, default="data/midv2020", help="Local MIDV-2020 dataset path")
+    midv_parser.add_argument("--output", type=str, default="reports/real_world_empirical_benchmark.md", help="Output Markdown report path")
 
     # --- Milestone 4: Semantic, MRZ & Typography Subcommands ---
 
@@ -1794,7 +1961,7 @@ def main():
     us_parser = subparsers.add_parser("unified-screen", help="Run full multi-modal forensic screening (M1-M4) producing unified M5 report")
     us_parser.add_argument("image", type=str, help="Path to identity document image")
     us_parser.add_argument("--face", "--selfie", dest="face", type=str, default=None, help="Optional path to reference live face selfie photo")
-    us_parser.add_argument("--doc-type", type=str, default="forgelensia", choices=["forgelensia", "passport", "generic_id"], help="Document credential schema")
+    us_parser.add_argument("--doc-type", type=str, default="auto", choices=["auto", "forgelensia", "passport", "generic_id", "id_card"], help="Document credential schema (auto, passport, generic_id, forgelensia)")
     us_parser.add_argument("--output", type=str, default=None, help="Output path for master 4-panel diagnostic card")
     us_parser.add_argument("--json", type=str, default=None, help="Output path to export unified JSON report contract")
     us_parser.add_argument("--no-card", action="store_false", dest="card", default=True, help="Disable visual diagnostic card generation")
@@ -1828,6 +1995,33 @@ def main():
     dash_parser.add_argument("--port", type=int, default=8501, help="Port to bind dashboard server (default: 8501)")
     dash_parser.add_argument("--headless", action="store_true", default=False, help="Run Streamlit in headless mode")
 
+    # --- Milestone 8: Production REST Microservice ---
+    serve_parser = subparsers.add_parser("serve", help="Launch the Milestone 8 high-throughput FastAPI REST microservice")
+    serve_parser.add_argument("--host", type=str, default="0.0.0.0", help="Host interface to bind (default: 0.0.0.0)")
+    serve_parser.add_argument("--port", type=int, default=8000, help="Port to bind API server (default: 8000)")
+    serve_parser.add_argument("--reload", action="store_true", default=False, help="Enable auto-reload on code change")
+    serve_parser.add_argument("--workers", type=int, default=1, help="Number of worker processes (default: 1)")
+
+    # --- Milestone 9: Presentation Attack, Morphing & Batch Streaming ---
+    live_parser = subparsers.add_parser("liveness", help="Evaluate selfie image for presentation attack detection (Moiré, LBP print, corneal reflection)")
+    live_parser.add_argument("selfie", type=str, help="Path to live selfie image")
+    live_parser.add_argument("--card", type=str, default=None, help="Optional output path for visual 4-panel PAD explanation card")
+
+    morph_parser = subparsers.add_parser("morph-check", help="Evaluate credential portrait for facial morphing attack detection (S-MAD & D-MAD)")
+    morph_parser.add_argument("portrait", type=str, help="Path to document portrait image")
+    morph_parser.add_argument("--selfie", type=str, default=None, help="Optional live selfie reference for differential D-MAD evaluation")
+    morph_parser.add_argument("--card", type=str, default=None, help="Optional output path for visual 4-panel MAD explanation card")
+
+    batch_parser = subparsers.add_parser("batch-screen", help="High-volume streaming batch screening with bounded memory and audit ledgers")
+    batch_parser.add_argument("--input-dir", type=str, required=True, help="Directory containing documents to screen")
+    batch_parser.add_argument("--workers", type=int, default=4, help="Worker concurrency threads (default: 4)")
+    batch_parser.add_argument("--csv", type=str, default=None, help="Output file path for compliance CSV ledger")
+    batch_parser.add_argument("--jsonl", type=str, default=None, help="Output file path for audit JSONL ledger")
+    batch_parser.add_argument("--chunk-size", type=int, default=50, help="Document chunk streaming batch size")
+    batch_parser.add_argument("--recursive", action="store_true", default=False, help="Recursively search directory")
+    batch_parser.add_argument("--resume", action="store_true", default=False, help="Resume batch screening by skipping already screened files in CSV ledger")
+    batch_parser.add_argument("--report", type=str, default=None, help="Optional output path to export Markdown executive batch analytics report")
+
     # --- Master System Audit / Diagnostics ---
     sa_parser = subparsers.add_parser("system-audit", aliases=["diagnostics"], help="Run master system diagnostic & integration health audit across M1-M6")
     sa_parser.add_argument("--json", type=str, default=None, help="Optional output path to export diagnostic report JSON")
@@ -1851,6 +2045,8 @@ def main():
         "screen-identity": cmd_screen_identity,
         "ocr": cmd_ocr,
         "ocr-eval": cmd_ocr_eval,
+        "evaluate-ocr": cmd_ocr_eval,
+        "midv-benchmark": cmd_midv_benchmark,
         "semantic-check": cmd_semantic_check,
         "semantic-eval": cmd_semantic_eval,
         "unified-screen": cmd_unified_screen,
@@ -1859,6 +2055,10 @@ def main():
         "evaluate-fusion": cmd_evaluate_fusion,
         "score-risk": cmd_score_risk,
         "dashboard": cmd_dashboard,
+        "serve": cmd_serve,
+        "liveness": cmd_liveness,
+        "morph-check": cmd_morph_check,
+        "batch-screen": cmd_batch_screen,
         "system-audit": cmd_system_audit,
         "diagnostics": cmd_system_audit,
     }

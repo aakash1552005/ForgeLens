@@ -1,0 +1,44 @@
+{
+  "doc_type": "esp_id_print_spoof",
+  "doc_category": "id_card",
+  "country": "ESP",
+  "source_clip_id": "clip_03_esp_id_print_spoof",
+  "frame_id": 1,
+  "quad": [
+    [
+      75,
+      58
+    ],
+    [
+      874,
+      69
+    ],
+    [
+      859,
+      577
+    ],
+    [
+      89,
+      563
+    ]
+  ],
+  "attack_type": "print_spoof",
+  "is_presentation_attack": true,
+  "fields": {
+    "name": {
+      "value": "SOFIA ALONSO"
+    },
+    "dob": {
+      "value": "24/03/1984"
+    },
+    "document_number": {
+      "value": "84920192X"
+    },
+    "issue_date": {
+      "value": "18/06/2017"
+    },
+    "expiry_date": {
+      "value": "18/06/2027"
+    }
+  }
+}

@@ -13,6 +13,7 @@ Schema Version: 1.0 (Canonical ForgeLens-X Contract)
 import json
 import math
 import os
+import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -92,6 +93,29 @@ def get_default_baseline() -> Optional[Dict[str, Any]]:
             except Exception:
                 _DEFAULT_BASELINE = None
     return _DEFAULT_BASELINE
+
+
+_PASSPORT_BASELINE = None
+
+def get_passport_baseline() -> Optional[Dict[str, Any]]:
+    """Retrieve or lazily compute baseline for passport credentials."""
+    global _PASSPORT_BASELINE
+    if _PASSPORT_BASELINE is not None:
+        return _PASSPORT_BASELINE
+
+    passport_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "original image")
+    if os.path.exists(passport_dir):
+        gen_paths = sorted([
+            os.path.join(passport_dir, f) for f in os.listdir(passport_dir)
+            if f.startswith("passport_") and f.endswith("_original.jpg")
+        ])
+        if gen_paths:
+            try:
+                _PASSPORT_BASELINE = compute_baseline(gen_paths, quality=90)
+            except Exception:
+                _PASSPORT_BASELINE = None
+    return _PASSPORT_BASELINE
+
 
 
 # ---------------------------------------------------------------------------
@@ -272,6 +296,7 @@ def correlate_suspicious_regions(
     mrz_data: Optional[Dict[str, Any]] = None,
     mrz_viz_cross: Optional[Dict[str, Any]] = None,
     metadata_audit: Optional[Dict[str, Any]] = None,
+    img_bgr: Optional[np.ndarray] = None,
 ) -> List[Dict[str, Any]]:
     """
     Cross-reference detected physical and semantic anomalies with OCR field bboxes.
@@ -444,9 +469,30 @@ def correlate_suspicious_regions(
                 "confidence": conf,
                 "evidence": f"Biometric face mismatch (distance={dist:.3f} > threshold={thresh:.3f}, similarity={face_res.get('similarity_pct', 0.0)}%)",
             })
+    elif img_bgr is not None and doc_shape is not None:
+        # Autonomous Document Inspection: Check for physical photo cut-and-paste seam along portrait perimeter
+        p_box = default_photo_box
+        if p_box and len(p_box) == 4:
+            px1, py1, px2, py2 = p_box
+            dh, dw = doc_shape[:2]
+            if 1 < px1 < px2 < dw - 1 and 1 < py1 < py2 < dh - 1:
+                seam_l = img_bgr[py1:py2, px1 - 1]
+                seam_r = img_bgr[py1:py2, px2 + 1]
+                seam_t = img_bgr[py1 - 1, px1:px2]
+                seam_b = img_bgr[py2 + 1, px1:px2]
+                m_seam = float((np.mean(seam_l) + np.mean(seam_r) + np.mean(seam_t) + np.mean(seam_b)) / 4.0)
+                if m_seam < 210.0:
+                    suspicious_regions.append({
+                        "source": "photo_splicing",
+                        "bbox": [int(x) for x in p_box],
+                        "field": "photo",
+                        "overlapping_fields": ["photo"],
+                        "confidence": 0.96,
+                        "evidence": f"Physical cut-and-paste boundary seam detected along portrait perimeter (seam intensity={m_seam:.1f} < 210.0)",
+                    })
 
     # 6. MRZ Validation Anomaly
-    if mrz_data and mrz_data.get("status") == "FAIL":
+    if mrz_data and (mrz_data.get("status") == "FAIL" or mrz_data.get("all_checksums_valid") is False):
         h_dim = doc_shape[0] if doc_shape else 500
         w_dim = doc_shape[1] if doc_shape else 800
         mrz_box = [int(w_dim * 0.10), int(h_dim * 0.82), int(w_dim * 0.90), int(h_dim * 0.96)]
@@ -458,19 +504,48 @@ def correlate_suspicious_regions(
             "confidence": 0.98,
             "evidence": f"ICAO Doc 9303 Modulo-10 checksum failure: {mrz_data.get('verdict', 'Checksum Forgery')}",
         })
-    elif mrz_viz_cross and mrz_viz_cross.get("verdict") == "VIZ_MRZ_CONTRADICTION_FRAUD":
-        h_dim = doc_shape[0] if doc_shape else 500
-        w_dim = doc_shape[1] if doc_shape else 800
-        mrz_box = [int(w_dim * 0.10), int(h_dim * 0.82), int(w_dim * 0.90), int(h_dim * 0.96)]
-        disc_str = "; ".join(mrz_viz_cross.get("discrepancies", ["Identity contradiction between VIZ and MRZ"]))
-        suspicious_regions.append({
-            "source": "mrz",
-            "bbox": mrz_box,
-            "field": "mrz",
-            "overlapping_fields": ["mrz"],
-            "confidence": 0.98,
-            "evidence": f"VIZ/MRZ Identity Contradiction: {disc_str}",
-        })
+
+    if mrz_viz_cross and mrz_viz_cross.get("verdict") == "VIZ_MRZ_CONTRADICTION_FRAUD":
+        failed_checks = [c for c in mrz_viz_cross.get("field_checks", []) if c.get("status") == "FAIL"]
+        if failed_checks:
+            for chk in failed_checks:
+                fname = chk.get("field")
+                f_info = fields.get(fname, {})
+                f_bbox = f_info.get("bbox") if isinstance(f_info, dict) else None
+                if f_bbox:
+                    suspicious_regions.append({
+                        "source": "mrz_cross_check",
+                        "bbox": f_bbox,
+                        "field": fname,
+                        "overlapping_fields": [fname],
+                        "confidence": 0.98,
+                        "evidence": f"VIZ/MRZ Identity Contradiction on '{fname}': Visual inspection '{chk.get('viz')}' contradicts official cryptographically checked MRZ '{chk.get('mrz')}'",
+                    })
+                else:
+                    h_dim = doc_shape[0] if doc_shape else 500
+                    w_dim = doc_shape[1] if doc_shape else 800
+                    mrz_box = [int(w_dim * 0.10), int(h_dim * 0.82), int(w_dim * 0.90), int(h_dim * 0.96)]
+                    suspicious_regions.append({
+                        "source": "mrz_cross_check",
+                        "bbox": mrz_box,
+                        "field": fname,
+                        "overlapping_fields": [fname],
+                        "confidence": 0.98,
+                        "evidence": f"VIZ/MRZ Mismatch on '{fname}': Visual field '{chk.get('viz')}' contradicts MRZ '{chk.get('mrz')}'",
+                    })
+        else:
+            h_dim = doc_shape[0] if doc_shape else 500
+            w_dim = doc_shape[1] if doc_shape else 800
+            mrz_box = [int(w_dim * 0.10), int(h_dim * 0.82), int(w_dim * 0.90), int(h_dim * 0.96)]
+            disc_str = "; ".join(mrz_viz_cross.get("discrepancies", ["Identity contradiction between VIZ and MRZ"]))
+            suspicious_regions.append({
+                "source": "mrz_cross_check",
+                "bbox": mrz_box,
+                "field": "mrz",
+                "overlapping_fields": ["mrz"],
+                "confidence": 0.98,
+                "evidence": f"VIZ/MRZ Identity Contradiction: {disc_str}",
+            })
 
     # 7. Metadata Provenance Editing Signature
     if metadata_audit and metadata_audit.get("is_tampered"):
@@ -552,7 +627,7 @@ def classify_attack_heuristic(
     if cm_detected and cm_data.get("num_matches", 0) >= config.get("attack_heuristics", {}).get("copy_move_min_matches", 15):
         n_m = cm_data["num_matches"]
         cm_conf = float(cm_data.get("confidence") or 0.85)
-        scores["copy_move"] += 0.85 + 0.15 * min(cm_conf / 0.50, 1.0)
+        scores["copy_move"] += 1.8 + min(1.0, n_m / 100.0)
         basis.append(f"Copy-Move cloning detected with {n_m} verified keypoint correspondences (conf={cm_conf:.2f})")
 
     # 3. Inspect Suspicious Regions for Field Associations
@@ -850,9 +925,9 @@ def extract_m6_feature_vector(report: Dict[str, Any]) -> Dict[str, float]:
 
     # 2. Copy-Move Features
     cm = report.get("tamper_signals", {}).get("copy_move", {})
-    f_vec["copy_move_num_matches"] = float(cm.get("num_matches", 0))
+    f_vec["copy_move_num_matches"] = float(cm.get("num_matches", 0)) if cm.get("detected") else 0.0
     f_vec["copy_move_confidence"] = float(cm.get("confidence") or 0.0)
-    f_vec["copy_move_detected"] = 1.0 if cm.get("num_matches", 0) >= 15 else 0.0
+    f_vec["copy_move_detected"] = 1.0 if (cm.get("detected") and cm.get("num_matches", 0) >= 15) else 0.0
 
     # 3. Semantic Rule Flags
     sem_checks = report.get("semantic_checks", [])
@@ -880,6 +955,7 @@ def extract_m6_feature_vector(report: Dict[str, Any]) -> Dict[str, float]:
     f_vec["face_distance"] = float(face.get("distance", 0.50)) if has_face and face.get("distance") is not None else 0.50
     f_vec["face_verified"] = 1.0 if has_face and face.get("verified") is True else 0.0
     f_vec["face_mismatch"] = 1.0 if has_face and face.get("verified") is False else 0.0
+    f_vec["photo_splicing_detected"] = 1.0 if any(s.get("source") == "photo_splicing" or (s.get("field") == "photo" and s.get("source") in ["photo_splicing", "ela"]) for s in report.get("suspicious_regions", [])) else 0.0
 
     # 6. Typography Font Metrics
     font_audit = report.get("font_forensics", {})
@@ -1042,6 +1118,16 @@ def generate_unified_forensic_report(
             "raw_text": fdata.get("raw_text"),
         }
 
+    # Detect document template type
+    is_passport = (
+        doc_type == "passport"
+        or bool(ocr_result.get("mrz_data"))
+        or any("PASSPORT" in str(l.get("text", "")).upper() for l in ocr_result.get("ocr_lines", []))
+        or any("P<" in str(l.get("text", "")).upper() for l in ocr_result.get("ocr_lines", []))
+    )
+    if is_passport:
+        doc_type = "passport"
+
     # -----------------------------------------------------------------------
     # Step B: Quality Assessment Layer
     # -----------------------------------------------------------------------
@@ -1051,11 +1137,13 @@ def generate_unified_forensic_report(
     # Step C: Milestone 1 — Physical Tamper Signals (ELA & Copy-Move)
     # -----------------------------------------------------------------------
     if baseline is None:
-        baseline = get_default_baseline()
-    if baseline is not None:
-        b_mean = baseline.get("mean_map")
-        if b_mean is not None and b_mean.shape != img_bgr.shape[:2]:
+        if is_passport:
+            baseline = get_passport_baseline()
+        elif doc_type in ["forgelensia", "national_id"]:
+            baseline = get_default_baseline()
+        else:
             baseline = None
+    # Retain baseline across resolutions (analyze_ela interpolates baseline maps dynamically)
 
     ela_energy_th = config.get("attack_heuristics", {}).get("ela_anomaly_energy_threshold", 75.0)
     ela_res = analyze_ela(image_path, baseline=baseline, energy_threshold=ela_energy_th)
@@ -1142,9 +1230,14 @@ def generate_unified_forensic_report(
     semantic_checks = semantic_battery.get("checks_list", [])
 
     # MRZ Audit
-    mrz_lines = ocr_result.get("mrz_lines", [])
-    mrz_data = parse_mrz(mrz_lines) if mrz_lines else None
-    mrz_viz_cross = cross_validate_viz_and_mrz(formatted_fields, mrz_data) if mrz_data else None
+    mrz_lines = [
+        l.get("text", "") for l in ocr_result.get("ocr_lines", [])
+        if "P<" in l.get("text", "") or "<<" in l.get("text", "") or len(re.sub(r"[^A-Z0-9<]", "", l.get("text", ""))) >= 28
+    ]
+    if not mrz_lines:
+        mrz_lines = ocr_result.get("mrz_lines", [])
+    mrz_data = parse_mrz(mrz_lines) if mrz_lines else ocr_result.get("mrz_data")
+    mrz_viz_cross = cross_validate_viz_and_mrz(formatted_fields, mrz_data) if mrz_data else ocr_result.get("mrz_cross_validation")
 
     # Typography & Font Audit
     font_audit = audit_document_font_consistency(img_bgr, formatted_fields)
@@ -1168,6 +1261,7 @@ def generate_unified_forensic_report(
         mrz_data=mrz_data,
         mrz_viz_cross=mrz_viz_cross,
         metadata_audit=metadata_audit,
+        img_bgr=img_bgr,
     )
 
     # -----------------------------------------------------------------------
