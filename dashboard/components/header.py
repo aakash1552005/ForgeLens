@@ -9,35 +9,61 @@ import os
 from typing import Callable, Optional
 import streamlit as st
 
+def _resolve_sample_path(*candidates: str) -> Optional[str]:
+    """Return the first existing path from candidate locations."""
+    for c in candidates:
+        if c and os.path.exists(c):
+            return c
+    return candidates[0] if candidates else None
+
+
 PRESET_SAMPLES = {
     "genuine": {
         "label": "Genuine Document",
         "icon": "🟢",
-        "path": "data/generated/images/src_0000_genuine.jpg",
+        "path": _resolve_sample_path(
+            "original image/passport_01_original.jpg",
+            "data/generated/images/src_0000_genuine.jpg",
+            "data/midv500_sample/clip_01_deu_passport/images/clip_01_deu_passport_frame_01.jpg",
+        ),
         "description": "Authentic identity credential with zero physical or semantic tamper signals.",
     },
     "date_edit": {
         "label": "Date Tampering",
         "icon": "🟠",
-        "path": "data/generated/images/src_0000_date_edit.jpg",
+        "path": _resolve_sample_path(
+            "tamper image/passport_01_tampered_date_edit.jpg",
+            "data/generated/images/src_0000_date_edit.jpg",
+        ),
         "description": "Altered expiry/issue dates displaying localized JPEG recompression discontinuity.",
     },
     "text_edit": {
         "label": "Text Modification",
         "icon": "🟠",
-        "path": "data/generated/images/src_0000_text_edit.jpg",
+        "path": _resolve_sample_path(
+            "tamper image/passport_02_tampered_text_edit.jpg",
+            "data/generated/images/src_0000_text_edit.jpg",
+            "data/midv2020_sample/clip_06_fra_pass_text_edit/images/clip_06_fra_pass_text_edit_frame_01.jpg",
+        ),
         "description": "Modified surname or document number with typography & semantic contradictions.",
     },
     "photo_swap": {
         "label": "Photo Swap",
         "icon": "🔴",
-        "path": "data/generated/images/src_0000_photo_swap.jpg",
+        "path": _resolve_sample_path(
+            "tamper image/passport_04_tampered_photo_swap.jpg",
+            "data/generated/images/src_0000_photo_swap.jpg",
+            "data/midv2020_sample/clip_05_usa_pass_photo_swap/images/clip_05_usa_pass_photo_swap_frame_01.jpg",
+        ),
         "description": "Substituted portrait photo with face boundary artifact and biometric mismatch.",
     },
     "copy_move": {
         "label": "Copy-Move Cloning",
         "icon": "🟣",
-        "path": "data/generated/images/src_0000_copy_move.jpg",
+        "path": _resolve_sample_path(
+            "tamper image/passport_03_tampered_cloned_stamp.jpg",
+            "data/generated/images/src_0000_copy_move.jpg",
+        ),
         "description": "Duplicated official emblem/stamp motif with matching ORB keypoint vectors.",
     },
 }
@@ -49,11 +75,18 @@ FACE_PRESETS = {
     },
     "genuine": {
         "label": "Genuine Matching Selfie",
-        "path": "data/face_pairs/images/pair_0001_genuine_live.jpg",
+        "path": _resolve_sample_path(
+            "original image/passport_04_selfie_genuine.jpg",
+            "tamper image/passport_04_selfie_genuine.jpg",
+            "data/face_pairs/images/pair_0001_genuine_live.jpg",
+        ),
     },
     "impostor": {
         "label": "Impostor Mismatched Selfie",
-        "path": "data/face_pairs/images/pair_0011_imposter_live.jpg",
+        "path": _resolve_sample_path(
+            "data/face_pairs/images/pair_0011_imposter_live.jpg",
+            "original image/passport_04_selfie_genuine.jpg",
+        ),
     },
 }
 

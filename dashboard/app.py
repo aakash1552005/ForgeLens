@@ -55,7 +55,7 @@ def main() -> None:
     st.markdown(apply_custom_styles(), unsafe_allow_html=True)
 
     # 3. Session State Management
-    if "doc_path" not in st.session_state:
+    if "doc_path" not in st.session_state or not st.session_state.get("doc_path") or not os.path.exists(st.session_state["doc_path"]):
         st.session_state["doc_path"] = PRESET_SAMPLES["genuine"]["path"]
     if "face_path" not in st.session_state:
         st.session_state["face_path"] = None
@@ -129,6 +129,7 @@ def main() -> None:
                 st.session_state["doc_path"] = PRESET_SAMPLES[key]["path"]
                 st.session_state["face_path"] = face
                 st.session_state["preset_selected"] = key
+                st.rerun()
 
     # --- Tab B: Custom File Upload ---
     with tab_upload:
